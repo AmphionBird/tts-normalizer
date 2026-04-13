@@ -3,22 +3,24 @@
 Handles:
 - Integers (cardinal & ordinal), with 两 for 2 as direct multiplier of 百/千/万/亿
 - Decimals (digit-by-digit after decimal point)
+- Scientific notation (1.5×10^6, 2.5e-3)
 - Percentages (100% → 百分之百)
 - Dates (YYYY-MM-DD, YYYY年M月D日, M月D日, N.M号)
 - Times (HH:MM, HH:MM:SS; leading-zero minutes → 零X分)
-- Currency (元/¥/￥ with 角/分; $; comma-separated amounts)
+- Currency (元/¥/￥ with 角/分; $; €; £; ₩; comma-separated amounts)
 - Physical units (kg, km, km/h, °C, …)
 - Version numbers (1.0.0 → 一点零点零)
-- IP addresses (192.168.1.1 → 一九二点一六八点一点一)
-- Phone numbers (mobile 11-digit; landline 0xx-xxxxxxxx)
-- Code/serial contexts (邮编, 房间号, 末四位, … → digit-by-digit)
+- IP addresses
+- Phone numbers (mobile; landline)
+- Code/serial contexts (邮编, 房间号, 末四位, …)
+- Roman numerals (Ⅰ-Ⅻ → 一-十二)
 - Fractions
 - Ordinals (第N, No.N)
-- Ratios/scores (3:0 → 三比零)
-- Ranges (5-10岁 → 五到十岁)
-- Subtraction (10-3=7 → 十减三等于七)
-- Common symbols (%, +, ×, ÷, =, &, @, #, ·)
-- Mixed Chinese-English passages
+- Ratios/scores
+- Ranges
+- Subtraction
+- 2 before measure words → 两
+- Common symbols
 """
 
 from __future__ import annotations
@@ -60,15 +62,13 @@ def _int_to_zh(n: int, formal: bool = False) -> str:
         group_str = _group4_to_zh(group, digits)
         result += group_str + _MAGNITUDES[len(groups) - 1 - mag_idx]
 
-    # Collapse repeated 零, strip trailing 零
     result = re.sub(r"零+", "零", result).strip("零")
 
-    # 一十 → 十 for 10-19 in spoken Chinese
+    # 一十 → 十 for 10-19
     if result.startswith("一十"):
         result = result[1:]
 
-    # 二 → 两 only when 二 is the direct multiplier of 百/千/万/亿
-    # i.e., NOT when preceded by 十 (where 二 is the ones digit, e.g. 十二亿)
+    # 二 → 两 only when directly multiplying 百/千/万/亿 (not when preceded by 十, i.e. ones digit)
     result = re.sub(r"(?<!十)二(百|千|万|亿)", r"两\1", result)
 
     return result or digits[0]
@@ -87,12 +87,11 @@ def _group4_to_zh(n: int, digits: str) -> str:
 
 
 def _year_to_zh(year_str: str) -> str:
-    """Read year digit-by-digit: 2026 → 二零二六."""
     return "".join(_DIGITS[int(c)] for c in year_str)
 
 
 def _decimal_to_zh(s: str) -> str:
-    """Convert decimal string to spoken form (digit-by-digit after point)."""
+    """Decimal → spoken (digit-by-digit after point)."""
     parts = s.split(".")
     integer_part = _int_to_zh(int(parts[0]))
     frac_part = "".join(_DIGITS[int(c)] for c in parts[1])
@@ -100,7 +99,7 @@ def _decimal_to_zh(s: str) -> str:
 
 
 def _cny_to_zh(int_str: str, dec_str: str) -> str:
-    """Convert CNY amount to 元/角/分 spoken form."""
+    """CNY amount → 元/角/分 spoken form."""
     dec_str = (dec_str + "0")[:2]
     jiao = int(dec_str[0])
     fen = int(dec_str[1])
@@ -113,24 +112,38 @@ def _cny_to_zh(int_str: str, dec_str: str) -> str:
         if fen > 0:
             result += _DIGITS[fen] + "分"
     elif fen > 0:
-        result += "零" + _DIGITS[fen] + "分"
+        if result:          # yuan already present → add 零 before fen
+            result += "零"
+        result += _DIGITS[fen] + "分"
     return result or "零元"
 
 
+def _sci_to_zh(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
+    """Convert scientific notation to Chinese spoken form."""
+    e = int(exp_str)
+    if neg_exp:
+        denom = _int_to_zh(10 ** e)
+        # Strip leading 一 for clean "千分之/万分之" etc.
+        if len(denom) > 1 and denom[0] == "一":
+            denom = denom[1:]
+        num = _decimal_to_zh(base_str) if "." in base_str else _int_to_zh(int(base_str))
+        return denom + "分之" + num
+    else:
+        val = round(float(base_str) * (10 ** e))
+        return _int_to_zh(val)
+
+
 # ---------------------------------------------------------------------------
-# Pattern registry — ordered, each entry: (compiled_regex, handler_fn)
+# Pattern registry
 # ---------------------------------------------------------------------------
 
 def _build_patterns():
     p = []
 
-    # PRE-0. Remove thousands-separator commas (e.g. 12,345 → 12345)
-    p.append((
-        re.compile(r"(?<=\d),(?=\d{3})"),
-        lambda m: "",
-    ))
+    # PRE-0. Thousands-separator comma removal (12,345 → 12345)
+    p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
 
-    # 0a. IP address: must come before version-number pattern
+    # 0a. IP address (before version-number pattern)
     p.append((
         re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"),
         lambda m: "点".join(
@@ -139,13 +152,42 @@ def _build_patterns():
         ),
     ))
 
+    # 0a1. Roman numerals (Unicode Ⅰ–Ⅻ) → Chinese
+    _roman_zh = {
+        "Ⅰ": "一", "Ⅱ": "二", "Ⅲ": "三", "Ⅳ": "四",
+        "Ⅴ": "五", "Ⅵ": "六", "Ⅶ": "七", "Ⅷ": "八",
+        "Ⅸ": "九", "Ⅹ": "十", "Ⅺ": "十一", "Ⅻ": "十二",
+    }
+    p.append((
+        re.compile("[" + "".join(_roman_zh.keys()) + "]"),
+        lambda m, rm=_roman_zh: rm.get(m.group(0), m.group(0)),
+    ))
+
+    # 0a2–5. Scientific notation (must precede symbol map and integer patterns)
+    # N×10^-E  (negative exponent first to avoid partial match)
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)[×x\*]10\^-(\d+)"),
+        lambda m: _sci_to_zh(m.group(1), m.group(2), neg_exp=True),
+    ))
+    # N×10^E
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)[×x\*]10\^(\d+)"),
+        lambda m: _sci_to_zh(m.group(1), m.group(2)),
+    ))
+    # Ne-E
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)[eE]-(\d+)"),
+        lambda m: _sci_to_zh(m.group(1), m.group(2), neg_exp=True),
+    ))
+    # NeE
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)[eE]\+?(\d+)"),
+        lambda m: _sci_to_zh(m.group(1), m.group(2)),
+    ))
+
     # 0b. Code / serial-number context words → digit-by-digit
-    _code_contexts = [
-        "邮编", "邮政编码", "房间号", "门牌号",
-        "末四位", "末六位", "末八位", "末三位",
-        "学号", "工号",
-    ]
-    for ctx in _code_contexts:
+    for ctx in ["邮编", "邮政编码", "房间号", "门牌号",
+                "末四位", "末六位", "末八位", "末三位", "学号", "工号"]:
         p.append((
             re.compile(rf"{ctx}(\d+)"),
             lambda m, c=ctx: c + "".join(_DIGITS[int(d)] for d in m.group(1)),
@@ -157,7 +199,7 @@ def _build_patterns():
         lambda m: "点".join(_int_to_zh(int(part)) for part in m.group(0).split(".")),
     ))
 
-    # 0d. N.M号 → N月M号 (e.g. 10.11号 → 十月十一号)
+    # 0d. N.M号 → N月M号
     p.append((
         re.compile(r"(\d{1,2})\.(\d{1,2})号"),
         lambda m: f"{_int_to_zh(int(m.group(1)))}月{_int_to_zh(int(m.group(2)))}号",
@@ -169,20 +211,19 @@ def _build_patterns():
         lambda m: "第" + _int_to_zh(int(m.group(1))),
     ))
 
-    # 0f. 第N (ordinal prefix already present)
+    # 0f. 第N ordinal
     p.append((
         re.compile(r"第(\d+)"),
         lambda m: "第" + _int_to_zh(int(m.group(1))),
     ))
 
-    # 0g. Duration year: 过去N年 → integer reading (must precede YYYY年 pattern)
+    # 0g. Duration year: 过去N年 → integer (before YYYY年 digit-by-digit)
     p.append((
         re.compile(r"过去(\d+)年"),
         lambda m: "过去" + _int_to_zh(int(m.group(1))) + "年",
     ))
 
-    # 1. Date: YYYY-MM-DD or YYYY/MM/DD
-    #    Leading-zero month/day → prefix 零 (e.g. 04 → 零四)
+    # 1. Date: YYYY-MM-DD or YYYY/MM/DD (leading-zero month/day → 零X)
     p.append((
         re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
         lambda m: (
@@ -200,13 +241,13 @@ def _build_patterns():
         lambda m: f"{_int_to_zh(int(m.group(1)))}月{_int_to_zh(int(m.group(2)))}日",
     ))
 
-    # 3. Year: YYYY年 / YYYY年代 → digit-by-digit
+    # 3. Year: YYYY年 → digit-by-digit
     p.append((
         re.compile(r"(\d{4})年"),
         lambda m: _year_to_zh(m.group(1)) + "年",
     ))
 
-    # 4. Time: HH:MM:SS  (use (?!\d) to prevent partial match like 1:10 in 1:100)
+    # 4. Time: HH:MM:SS
     p.append((
         re.compile(r"(\d{1,2}):(\d{2}):(\d{2})(?!\d)"),
         lambda m: (
@@ -218,7 +259,7 @@ def _build_patterns():
         ),
     ))
 
-    # 5. Time: HH:MM  (leading-zero minutes → 零X分; (?!\d) prevents 1:10 matching in 1:100)
+    # 5. Time: HH:MM
     p.append((
         re.compile(r"(\d{1,2}):(\d{2})(?!\d)"),
         lambda m: (
@@ -231,7 +272,7 @@ def _build_patterns():
         ),
     ))
 
-    # 5b. Ratio / score: N:M → N比M  (after time patterns; catches remaining d:d)
+    # 5b. Ratio / score: N:M → N比M
     p.append((
         re.compile(r"(\d+):(\d+)"),
         lambda m: _int_to_zh(int(m.group(1))) + "比" + _int_to_zh(int(m.group(2))),
@@ -245,13 +286,10 @@ def _build_patterns():
         ) + "千米",
     ))
 
-    # 7. 100% special case → 百分之百
-    p.append((
-        re.compile(r"100%"),
-        lambda m: "百分之百",
-    ))
+    # 7. 100% → 百分之百
+    p.append((re.compile(r"100%"), lambda m: "百分之百"))
 
-    # 8. Percentage: N% → 百分之N
+    # 8. Percentage
     p.append((
         re.compile(r"(\d+(?:\.\d+)?)%"),
         lambda m: "百分之" + (
@@ -265,13 +303,33 @@ def _build_patterns():
         lambda m: _cny_to_zh(m.group(1), m.group(2)),
     ))
 
-    # 10. CNY integer: ¥N → N元
+    # 10. CNY integer
     p.append((
         re.compile(r"[¥￥](\d+)"),
         lambda m: _int_to_zh(int(m.group(1))) + "元",
     ))
 
-    # 11. USD $
+    # 11. Other currencies
+    p.append((
+        re.compile(r"€(\d+(?:\.\d+)?)"),
+        lambda m: (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "欧元",
+    ))
+    p.append((
+        re.compile(r"£(\d+(?:\.\d+)?)"),
+        lambda m: (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "英镑",
+    ))
+    p.append((
+        re.compile(r"₩(\d+(?:\.\d+)?)"),
+        lambda m: (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "韩元",
+    ))
+
+    # 12. USD $
     p.append((
         re.compile(r"\$(\d+(?:\.\d+)?)"),
         lambda m: (
@@ -279,13 +337,13 @@ def _build_patterns():
         ) + "美元",
     ))
 
-    # 12. Fraction: 3/4 → 四分之三
+    # 13. Fraction: 3/4 → 四分之三
     p.append((
         re.compile(r"(\d+)/(\d+)"),
         lambda m: f"{_int_to_zh(int(m.group(2)))}分之{_int_to_zh(int(m.group(1)))}",
     ))
 
-    # 13. Temperature: -10°C / 10°C / 10℃
+    # 14. Temperature
     p.append((
         re.compile(r"(-?\d+(?:\.\d+)?)[°℃]C?"),
         lambda m: (
@@ -296,7 +354,7 @@ def _build_patterns():
         ),
     ))
 
-    # 14. Units: number + ASCII unit
+    # 15. Units: number + ASCII unit
     _unit_map = {
         "kg": "千克", "g": "克", "mg": "毫克",
         "km": "千米", "m": "米", "cm": "厘米", "mm": "毫米",
@@ -314,54 +372,57 @@ def _build_patterns():
         ),
     ))
 
-    # 15. Landline phone: 0xx(x)-xxxxxxx(x)
+    # 16. Landline phone
     p.append((
         re.compile(r"\b(0\d{2,3})-(\d{7,8})\b"),
         lambda m: "".join(_DIGITS[int(c)] for c in m.group(1) + m.group(2)),
     ))
 
-    # 16. Mobile phone: 11-digit 1xx xxxx xxxx
+    # 17. Mobile phone
     p.append((
         re.compile(r"\b(1[3-9]\d)-?(\d{4})-?(\d{4})\b"),
         lambda m: "".join(_DIGITS[int(c)] for c in m.group(1) + m.group(2) + m.group(3)),
     ))
 
-    # 17. Range: digit-minus-digit followed by a Chinese character → 到
-    #     Runs BEFORE subtraction so "5-10岁" → 五到十岁, not 五减十岁
+    # 18. Range: digit-minus-digit + Chinese char → 到
     p.append((
         re.compile(r"(\d+)-(\d+)(?=[\u4e00-\u9fff])"),
         lambda m: _int_to_zh(int(m.group(1))) + "到" + _int_to_zh(int(m.group(2))),
     ))
 
-    # 18. Subtraction: digit-minus-digit (e.g. 10-3=7) → 减
+    # 19. Subtraction: digit-minus-digit → 减
+    p.append((re.compile(r"(?<=\d)-(?=\d)"), lambda m: "减"))
+
+    # 19b. 2 before measure words → 两
+    _mw = "个只位件杯碗张本台辆条块间套座名人份"
     p.append((
-        re.compile(r"(?<=\d)-(?=\d)"),
-        lambda m: "减",
+        re.compile(rf"(?<!\d)2(?=[{_mw}])"),
+        lambda m: "两",
     ))
 
-    # 19. Decimal number
+    # 20. Decimal
     p.append((
         re.compile(r"-?\d+\.\d+"),
         lambda m: ("负" if m.group(0).startswith("-") else "")
                   + _decimal_to_zh(m.group(0).lstrip("-")),
     ))
 
-    # 20. Plain integer (possibly negative)
+    # 21. Plain integer
     p.append((
         re.compile(r"-?\d+"),
         lambda m: ("负" if m.group(0).startswith("-") else "")
                   + _int_to_zh(abs(int(m.group(0)))),
     ))
 
-    # 21. Symbol map (including · removal)
+    # 22. Symbol map
     _sym_map = {
         "+": "加", "×": "乘", "÷": "除以", "=": "等于",
         "≈": "约等于", "≠": "不等于", "≤": "小于等于", "≥": "大于等于",
         "<": "小于", ">": "大于",
         "&": "和", "@": "艾特", "#": "井号",
-        "~": "到", "—": "到", "–": "到",
-        "·": "",   # middle dot: remove
-        "•": "",   # bullet: remove
+        "~": "到",
+        # Note: — and – intentionally NOT mapped (preserve em-dash punctuation)
+        "·": "", "•": "",
     }
     sym_re = "[" + re.escape("".join(_sym_map.keys())) + "]"
     p.append((
@@ -376,8 +437,6 @@ _PATTERNS = _build_patterns()
 
 
 class ZhNormalizer(BaseNormalizer):
-    """Chinese normalizer."""
-
     def normalize(self, text: str) -> str:
         return self._apply_patterns(text)
 

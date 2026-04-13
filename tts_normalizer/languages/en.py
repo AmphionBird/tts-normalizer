@@ -1,13 +1,15 @@
-"""English TTS normalizer (basic implementation).
+"""English TTS normalizer.
 
 Handles:
 - Cardinals (42 → forty-two)
 - Ordinals (1st, 2nd → first, second)
 - Decimals (3.14 → three point one four)
-- Percentages (10% → ten percent)
-- Currency ($10.50 → ten dollars and fifty cents)
-- Dates (2026-04-13 → April thirteenth, twenty twenty-six)
-- Times (10:30 → ten thirty)
+- Percentages (50% → fifty percent)
+- Currency ($10.50, £50)
+- Dates (2026-04-13, April 13, 2026)
+- Times (10:30 → ten thirty; 3:05 → three oh five)
+- Units (50kg, 10cm, 100km/h, -5°C)
+- US phone numbers (1-800-555-1234)
 - Common symbols
 """
 
@@ -35,10 +37,11 @@ _ORDINALS = {
     "hundred": "hundredth", "thousand": "thousandth", "million": "millionth",
     "billion": "billionth",
 }
-_MONTHS = [
+_MONTHS_EN = [
     "", "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ]
+_MONTH_NAMES = "|".join(_MONTHS_EN[1:])
 
 
 def _int_to_en(n: int) -> str:
@@ -70,24 +73,116 @@ def _to_ordinal(n: int) -> str:
     return word.rsplit(last, 1)[0] + ordinal_last
 
 
+def _year_to_en(year_str: str) -> str:
+    y = int(year_str)
+    if 1100 <= y <= 1999 or 2010 <= y <= 2099:
+        hi, lo = y // 100, y % 100
+        return _int_to_en(hi) + " " + (_int_to_en(lo) if lo else "hundred")
+    return _int_to_en(y)
+
+
+def _read_number(s: str) -> str:
+    if "." in s:
+        i, f = s.split(".")
+        return (_int_to_en(int(i)) + " point "
+                + " ".join(_ONES[int(c)] or "zero" for c in f))
+    return _int_to_en(int(s))
+
+
+def _usd(dollars_str: str, cents_str: str | None) -> str:
+    d = int(dollars_str)
+    c = int(cents_str) if cents_str else 0
+    if d > 0 and c > 0:
+        return (_int_to_en(d) + " dollar" + ("s" if d != 1 else "")
+                + " and " + _int_to_en(c) + " cent" + ("s" if c != 1 else ""))
+    if d > 0:
+        return _int_to_en(d) + " dollar" + ("s" if d != 1 else "")
+    if c > 0:
+        return _int_to_en(c) + " cent" + ("s" if c != 1 else "")
+    return "zero dollars"
+
+
+def _digits_en(s: str) -> str:
+    """Read string of digits one-by-one in English."""
+    return " ".join(_ONES[int(c)] or "zero" for c in s)
+
+
 def _build_patterns():
     p = []
 
-    # Date: YYYY-MM-DD
+    # Phone: 1-NXX-NXX-XXXX (US toll-free / standard)
+    # "800" component read as number; remaining 7 digits read individually
+    p.append((
+        re.compile(r"\b1-(\d{3})-(\d{3})-(\d{4})\b"),
+        lambda m: (
+            "one " + _int_to_en(int(m.group(1)))
+            + " " + _digits_en(m.group(2))
+            + " " + _digits_en(m.group(3))
+        ),
+    ))
+
+    # Date: "Month D, YYYY" text format
+    p.append((
+        re.compile(
+            rf"\b({_MONTH_NAMES})\s+(\d{{1,2}}),?\s*(\d{{4}})\b"
+        ),
+        lambda m: (
+            m.group(1) + " " + _to_ordinal(int(m.group(2)))
+            + ", " + _year_to_en(m.group(3))
+        ),
+    ))
+
+    # Date: YYYY-MM-DD ISO
     p.append((
         re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
-        lambda m: (f"{_MONTHS[int(m.group(2))]} {_to_ordinal(int(m.group(3)))},"
+        lambda m: (f"{_MONTHS_EN[int(m.group(2))]} {_to_ordinal(int(m.group(3)))},"
                    f" {_year_to_en(m.group(1))}"),
     ))
 
-    # Time HH:MM
+    # Time HH:MM  (leading-zero minutes → "oh X")
     p.append((
         re.compile(r"\b(\d{1,2}):(\d{2})\b"),
-        lambda m: (_int_to_en(int(m.group(1))) + " "
-                   + ("o'clock" if int(m.group(2)) == 0 else _int_to_en(int(m.group(2))))),
+        lambda m: (
+            _int_to_en(int(m.group(1))) + " "
+            + (
+                "o'clock" if int(m.group(2)) == 0
+                else ("oh " if m.group(2).startswith("0") else "")
+                     + _int_to_en(int(m.group(2)))
+            )
+        ),
     ))
 
-    # Ordinals: 1st 2nd 3rd 4th …
+    # Temperature: -5°C / 37°F
+    p.append((
+        re.compile(r"(-?\d+(?:\.\d+)?)[°℃]([CF]?)"),
+        lambda m: (
+            ("negative " if m.group(1).startswith("-") else "")
+            + _read_number(m.group(1).lstrip("-"))
+            + " degree" + ("s" if abs(float(m.group(1))) != 1 else "")
+            + (" Celsius" if m.group(2) in ("C", "℃", "") else " Fahrenheit")
+        ),
+    ))
+
+    # Speed: Nkm/h → N kilometers per hour
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)km/h"),
+        lambda m: _read_number(m.group(1)) + " kilometers per hour",
+    ))
+
+    # Units
+    _unit_map_en = {
+        "kg": "kilograms", "g": "grams", "mg": "milligrams",
+        "km": "kilometers", "m": "meters", "cm": "centimeters", "mm": "millimeters",
+        "L": "liters", "ml": "milliliters", "mL": "milliliters",
+        "kW": "kilowatts", "W": "watts",
+    }
+    unit_re_en = "|".join(re.escape(u) for u in sorted(_unit_map_en, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)({unit_re_en})\b"),
+        lambda m, um=_unit_map_en: _read_number(m.group(1)) + " " + um[m.group(2)],
+    ))
+
+    # Ordinals: 1st 2nd 3rd …
     p.append((
         re.compile(r"\b(\d+)(st|nd|rd|th)\b"),
         lambda m: _to_ordinal(int(m.group(1))),
@@ -102,11 +197,13 @@ def _build_patterns():
     # USD
     p.append((
         re.compile(r"\$(\d+)(?:\.(\d{2}))?"),
-        lambda m: (
-            _int_to_en(int(m.group(1))) + " dollar" + ("s" if int(m.group(1)) != 1 else "")
-            + ((" and " + _int_to_en(int(m.group(2))) + " cent"
-                + ("s" if int(m.group(2)) != 1 else "")) if m.group(2) and int(m.group(2)) else "")
-        ),
+        lambda m: _usd(m.group(1), m.group(2)),
+    ))
+
+    # GBP £
+    p.append((
+        re.compile(r"£(\d+(?:\.\d+)?)"),
+        lambda m: _read_number(m.group(1)) + " pound" + ("s" if float(m.group(1)) != 1 else ""),
     ))
 
     # Decimal
@@ -137,22 +234,6 @@ def _build_patterns():
     ))
 
     return p
-
-
-def _year_to_en(year_str: str) -> str:
-    y = int(year_str)
-    if 1100 <= y <= 1999 or 2010 <= y <= 2099:
-        hi, lo = y // 100, y % 100
-        return _int_to_en(hi) + " " + (_int_to_en(lo) if lo else "hundred")
-    return _int_to_en(y)
-
-
-def _read_number(s: str) -> str:
-    if "." in s:
-        i, f = s.split(".")
-        return (_int_to_en(int(i)) + " point "
-                + " ".join(_ONES[int(c)] or "zero" for c in f))
-    return _int_to_en(int(s))
 
 
 _PATTERNS = _build_patterns()

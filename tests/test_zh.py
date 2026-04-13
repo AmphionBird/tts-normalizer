@@ -23,11 +23,12 @@ def test_decimal_date_ambiguity(zh):
 
 
 def test_date_iso(zh):
-    assert zh.normalize("2026-04-13") == "二零二六年四月十三日"
+    # Leading-zero month "04" → "零四月" per linguist spec
+    assert zh.normalize("2026-04-13") == "二零二六年零四月十三日"
 
 
 def test_date_slash(zh):
-    assert zh.normalize("2026/04/13") == "二零二六年四月十三日"
+    assert zh.normalize("2026/04/13") == "二零二六年零四月十三日"
 
 
 def test_time_hhmm(zh):

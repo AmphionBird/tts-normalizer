@@ -107,8 +107,29 @@ def _digits_en(s: str) -> str:
     return " ".join(_ONES[int(c)] or "zero" for c in s)
 
 
+def _fraction_en(num: int, den: int) -> str:
+    if den == 2:
+        return _int_to_en(num) + (" half" if num == 1 else " halves")
+    if den == 4:
+        return _int_to_en(num) + (" quarter" if num == 1 else " quarters")
+    den_word = _to_ordinal(den)
+    if num > 1:
+        den_word += "s"
+    return _int_to_en(num) + " " + den_word
+
+
 def _build_patterns():
     p = []
+
+    # Comma removal (1,000 → 1000)
+    p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
+
+    # Abbreviations (before number patterns to avoid partial processing)
+    p.append((re.compile(r"\bNo\.\s*(\d+)"), lambda m: "Number " + _int_to_en(int(m.group(1)))))
+    p.append((re.compile(r"\bDr\."), lambda m: "Doctor"))
+    p.append((re.compile(r"\bMr\."), lambda m: "Mister"))
+    p.append((re.compile(r"\bvs\."), lambda m: "versus"))
+    p.append((re.compile(r"\betc\."), lambda m: "et cetera"))
 
     # Phone: 1-NXX-NXX-XXXX (US toll-free / standard)
     # "800" component read as number; remaining 7 digits read individually
@@ -194,6 +215,12 @@ def _build_patterns():
         lambda m: _read_number(m.group(1)) + " percent",
     ))
 
+    # Negative currency (-$50 → negative fifty dollars)
+    p.append((
+        re.compile(r"-\$(\d+)(?:\.(\d{2}))?"),
+        lambda m: "negative " + _usd(m.group(1), m.group(2)),
+    ))
+
     # USD
     p.append((
         re.compile(r"\$(\d+)(?:\.(\d{2}))?"),
@@ -206,6 +233,12 @@ def _build_patterns():
         lambda m: _read_number(m.group(1)) + " pound" + ("s" if float(m.group(1)) != 1 else ""),
     ))
 
+    # Fractions (1/2 → one half, 3/4 → three quarters, 2/5 → two fifths)
+    p.append((
+        re.compile(r"\b(\d+)/(\d+)\b"),
+        lambda m: _fraction_en(int(m.group(1)), int(m.group(2))),
+    ))
+
     # Decimal
     p.append((
         re.compile(r"-?\d+\.\d+"),
@@ -213,6 +246,12 @@ def _build_patterns():
                   + _int_to_en(abs(int(m.group(0).split(".")[0])))
                   + " point "
                   + " ".join(_ONES[int(c)] or "zero" for c in m.group(0).split(".")[1]),
+    ))
+
+    # 4-digit year-style numbers (2026 → twenty twenty-six, 2000 → two thousand)
+    p.append((
+        re.compile(r"\b(\d{4})\b"),
+        lambda m: _year_to_en(m.group(1)),
     ))
 
     # Integer

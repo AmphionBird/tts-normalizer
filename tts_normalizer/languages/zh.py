@@ -361,7 +361,6 @@ def _build_patterns():
         "L": "升", "ml": "毫升", "mL": "毫升",
         "GHz": "吉赫兹", "MHz": "兆赫兹", "kHz": "千赫兹", "Hz": "赫兹",
         "kW": "千瓦", "W": "瓦", "V": "伏", "A": "安",
-        "MB": "兆字节", "GB": "吉字节", "TB": "太字节", "KB": "千字节",
     }
     unit_re = "|".join(re.escape(u) for u in sorted(_unit_map, key=len, reverse=True))
     p.append((

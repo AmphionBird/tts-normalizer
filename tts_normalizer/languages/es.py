@@ -113,11 +113,28 @@ def _decimal_to_es(s: str) -> str:
 
 
 def _fraction_es(num: int, den: int) -> str:
+    # "uno" → "un" before masculine nouns (un medio, un tercio, …)
+    num_word = "un" if num == 1 else _int_to_es(num)
     if den in _FRAC_DEN:
         word_s, word_p = _FRAC_DEN[den]
-        return _int_to_es(num) + " " + (word_s if num == 1 else word_p)
+        return num_word + " " + (word_s if num == 1 else word_p)
     den_word = _int_to_es(den) + "avo" + ("s" if num > 1 else "")
-    return _int_to_es(num) + " " + den_word
+    return num_word + " " + den_word
+
+
+def _eur(int_str: str, dec_str) -> str:
+    """€ amount → euros y céntimos spoken form."""
+    e = int(int_str)
+    c = int((dec_str + "0")[:2]) if dec_str else 0
+    euro_part = ("un euro" if e == 1
+                 else _int_to_es(e) + " euros" if e > 0
+                 else "")
+    cent_part = ("un céntimo" if c == 1
+                 else _int_to_es(c) + " céntimos" if c > 0
+                 else "")
+    if euro_part and cent_part:
+        return euro_part + " y " + cent_part
+    return euro_part or cent_part or "cero euros"
 
 
 def _ordinal_es(n: int) -> str:
@@ -147,7 +164,8 @@ def _time_es(h: int, m: int) -> str:
     hour_word = "una" if h == 1 else _int_to_es(h)
     if m == 0:
         return f"{article} {hour_word}"
-    return f"{article} {hour_word} y {_int_to_es(m)}"
+    min_word = "cuarto" if m == 15 else "media" if m == 30 else _int_to_es(m)
+    return f"{article} {hour_word} y {min_word}"
 
 
 # ---------------------------------------------------------------------------
@@ -275,13 +293,10 @@ def _build_patterns():
         ) + " dólares",
     ))
 
-    # 12. Currency
+    # 12. Currency — € with optional cents: €1.50 → un euro y cincuenta céntimos
     p.append((
-        re.compile(r"€(\d+(?:\.\d+)?)"),
-        lambda m: (
-            _decimal_to_es(m.group(1)) if "." in m.group(1)
-            else _int_to_es(int(m.group(1)))
-        ) + " euro" + ("s" if float(m.group(1)) != 1 else ""),
+        re.compile(r"€(\d+)(?:\.(\d{1,2}))?"),
+        lambda m: _eur(m.group(1), m.group(2)),
     ))
     p.append((
         re.compile(r"\$(\d+(?:\.\d+)?)"),

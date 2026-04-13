@@ -87,7 +87,12 @@ def _sci_to_ja(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
     e = int(exp_str)
     if neg_exp:
         denom = _int_to_ja(10 ** e)
-        num = _decimal_to_ja(base_str) if "." in base_str else _int_to_ja(int(base_str))
+        if "." in base_str:
+            integer_str, frac_str = base_str.split(".")
+            num = (_int_to_ja(int(integer_str)) + "・"
+                   + "".join(_DIGITS_JA[int(c)] for c in frac_str))
+        else:
+            num = _int_to_ja(int(base_str))
         return denom + "分の" + num
     else:
         val = round(float(base_str) * (10 ** e))
@@ -143,6 +148,12 @@ def _build_patterns():
         lambda m: "第" + _int_to_ja(int(m.group(1))),
     ))
 
+    # 1e. Fractions (1/2 → 二分の一)
+    p.append((
+        re.compile(r"\b(\d+)/(\d+)\b"),
+        lambda m: _int_to_ja(int(m.group(2))) + "分の" + _int_to_ja(int(m.group(1))),
+    ))
+
     # 2. Date: YYYY-MM-DD or YYYY/MM/DD
     p.append((
         re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
@@ -178,6 +189,12 @@ def _build_patterns():
         ),
     ))
 
+    # 5b. Ratio N:M → N対M (after time patterns to avoid conflict)
+    p.append((
+        re.compile(r"(\d+):(\d+)"),
+        lambda m: _int_to_ja(int(m.group(1))) + "対" + _int_to_ja(int(m.group(2))),
+    ))
+
     # 6. Speed: Nkm/h → 時速Nキロメートル
     p.append((
         re.compile(r"(\d+(?:\.\d+)?)km/h"),
@@ -192,6 +209,14 @@ def _build_patterns():
         lambda m: (
             _decimal_to_ja(m.group(1)) if "." in m.group(1) else _int_to_ja(int(m.group(1)))
         ) + "パーセント",
+    ))
+
+    # 7b. Negative currency: -¥N → マイナスN円
+    p.append((
+        re.compile(r"-[¥￥](\d+(?:\.\d+)?)"),
+        lambda m: "マイナス" + (
+            _decimal_to_ja(m.group(1)) if "." in m.group(1) else _int_to_ja(int(m.group(1)))
+        ) + "円",
     ))
 
     # 8. Currency: ¥/￥ → 円
@@ -246,6 +271,15 @@ def _build_patterns():
         "kW": "キロワット", "W": "ワット",
     }
     unit_re_ja = "|".join(re.escape(u) for u in sorted(_unit_map_ja, key=len, reverse=True))
+
+    # Negative units: -Nunit → マイナスNunit (must precede positive unit pattern)
+    p.append((
+        re.compile(rf"-(\d+(?:\.\d+)?)({unit_re_ja})\b"),
+        lambda m, um=_unit_map_ja: "マイナス" + (
+            _decimal_to_ja(m.group(1)) if "." in m.group(1) else _int_to_ja(int(m.group(1)))
+        ) + um[m.group(2)],
+    ))
+
     p.append((
         re.compile(rf"(\d+(?:\.\d+)?)({unit_re_ja})\b"),
         lambda m, um=_unit_map_ja: (
@@ -281,6 +315,7 @@ def _build_patterns():
         "<": "より小さい", ">": "より大きい",
         "&": "アンド", "@": "アット", "#": "シャープ",
         "~": "から",
+        "〜": "から",
         "·": "", "•": "",
     }
     sym_re_ja = "[" + re.escape("".join(_sym_map_ja.keys())) + "]"

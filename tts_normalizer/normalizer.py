@@ -6,11 +6,13 @@ from typing import Optional
 
 from .languages.zh import ZhNormalizer
 from .languages.en import EnNormalizer
+from .languages.ja import JaNormalizer
 
 
 _LANG_MAP = {
     "zh": ZhNormalizer,
     "en": EnNormalizer,
+    "ja": JaNormalizer,
 }
 
 

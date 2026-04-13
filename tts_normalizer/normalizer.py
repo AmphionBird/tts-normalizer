@@ -7,12 +7,14 @@ from typing import Optional
 from .languages.zh import ZhNormalizer
 from .languages.en import EnNormalizer
 from .languages.ja import JaNormalizer
+from .languages.es import EsNormalizer
 
 
 _LANG_MAP = {
     "zh": ZhNormalizer,
     "en": EnNormalizer,
     "ja": JaNormalizer,
+    "es": EsNormalizer,
 }
 
 

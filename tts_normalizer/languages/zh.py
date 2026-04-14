@@ -425,7 +425,7 @@ def _build_patterns():
     p.append((re.compile(r"(?<=\d)-(?=\d)"), lambda m: "减"))
 
     # 19b. 2 before measure words → 两
-    _mw = "个只位件杯碗张本台辆条块间套座名人份架棵幅头匹根"
+    _mw = "个只位件杯碗张本台辆条块间套座名人份架棵幅头匹根颗粒把双对群批排栋层所道首篇封面堆捆串"
     p.append((
         re.compile(rf"(?<!\d)2(?=[{_mw}])"),
         lambda m: "两",

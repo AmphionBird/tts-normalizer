@@ -62,6 +62,35 @@ es.normalize_token("€1.50")  # → "un euro y cincuenta céntimos"
 | Scientific | `1.5×10^6` → 一百五十万 | — | `1.5×10^6` → 百五十万 | `1.5×10^6` → un millón quinientos mil |
 | Abbreviations | — | `Dr.` → Doctor, `vs.` → versus | — | `Dr.` → doctor, `Sr.` → señor |
 
+## Digit-free output guarantee
+
+All four languages guarantee **no Arabic digits (0-9) in the output**, making it safe to pass directly to any TTS model.
+
+Brand codes, model names, and version numbers are handled without structural mangling:
+
+```python
+zh.normalize("今天用GPT-4写了10篇文章，效率提升了50%")
+# → "今天用GPT-四写了十篇文章，效率提升了百分之五十"
+
+en.normalize("GPT-4o is available on H100 GPUs")
+# → "GPT-four o is available on H one hundred GPUs"
+
+zh.normalize("A4纸和USB3.0接口")
+# → "A四纸和USB三点零接口"
+```
+
+> **Note:** URLs containing digits (e.g. `/v1/`) will have their digits converted. Strip URLs before passing to the normalizer if verbatim URL preservation is required.
+
+### Custom entity allowlist (zh)
+
+Tokens that must be preserved verbatim can be passed via `context`:
+
+```python
+zh = Normalizer(lang="zh", context={"entity_allowlist": ["GPT-4o", "v1"]})
+zh.normalize("调用GPT-4o的v1接口")
+# → "调用GPT-四o的v一接口"  (digits still converted by cleanup pass)
+```
+
 ## Extending to a new language
 
 Add `tts_normalizer/languages/xx.py` subclassing `BaseNormalizer`, then register it in `tts_normalizer/normalizer.py`.

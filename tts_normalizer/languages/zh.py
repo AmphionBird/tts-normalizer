@@ -473,7 +473,7 @@ _PATTERNS = _build_patterns()
 _ENTITY_RE = re.compile(
     r"https?://\S+"                          # URLs
     r"|`[^`]*`"                              # backtick code spans
-    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-z]?)(?![A-Z\d])"  # brand codes: USB3.0, A380, GPT-4, GPT-4o
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-zA-Z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-zA-Z]?)(?![A-Z\d])"  # brand codes: USB3.0, A380, GPT-4, GPT-4o
 )
 
 # Use CJK Unified Ideographs offset as slot index (no digits → won't be re-converted)

@@ -373,7 +373,7 @@ _PATTERNS = _build_patterns()
 _ENTITY_RE_ES = re.compile(
     r"https?://\S+"
     r"|`[^`]*`"
-    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-z]?)(?![A-Z\d])"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-zA-Z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-zA-Z]?)(?![A-Z\d])"
 )
 _SLOT_BASE_ES = 0xE000
 

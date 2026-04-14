@@ -42,13 +42,19 @@ cases = [
     # --- CNY decimal truncation fix ---
     ("¥1.234",          "一元二角三分"),   # truncates to 2dp → jiao=2, fen=3
 
-    # --- Limitation 2 & 5: entity / brand code protection ---
-    ("波音A380客机",    "波音A380客机"),
-    ("用USB3.0连接",    "用USB3.0连接"),
+    # --- Limitation 5: URL / code span protection (verbatim) ---
     ("请访问https://example.com了解更多",
      "请访问https://example.com了解更多"),
     # Code span protection
     ("执行`rm -rf /`命令",  "执行`rm -rf /`命令"),
+
+    # --- Limitation 2: brand codes — digits converted, hyphens not mangled ---
+    # Fixed integer pattern ((?<![a-zA-Z])) prevents "GPT-4" → "GPT负四"
+    ("波音A380客机",    "波音A三百八十客机"),
+    ("用USB3.0连接",    "用USB三点零连接"),
+    ("GPT-4模型",       "GPT-四模型"),
+    ("A4纸",            "A四纸"),
+    ("Q1季度",          "Q一季度"),
 ]
 
 passed = failed = 0

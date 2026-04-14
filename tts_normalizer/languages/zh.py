@@ -466,22 +466,24 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
-# Default entity allowlist — single-letter-plus-digit codes that should be preserved.
-# ISO paper sizes (A0-A6, B4-B6) and common short product codes.
-# Users can extend via Normalizer(lang="zh", context={"entity_allowlist": [...]}).
-_DEFAULT_ALLOWLIST: list[str] = [
-    "A0", "A1", "A2", "A3", "A4", "A5", "A6",
-    "B4", "B5", "B6",
-]
-
-# Entity protection regexes (applied before digit conversion)
+# Entity protection: brand codes, URLs, and backtick code spans are shielded
+# from the main pattern pipeline to prevent structural mangling (e.g. "GPT-4"
+# → "GPT负四"). After restoration, a final cleanup pass converts any remaining
+# digits so TTS output is always digit-free.
 _ENTITY_RE = re.compile(
     r"https?://\S+"                          # URLs
     r"|`[^`]*`"                              # backtick code spans
-    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"  # brand codes: USB3.0, A380 (not Q1)
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"  # brand codes: USB3.0, A380, GPT-4
 )
-# Use CJK Unified Ideographs offset as slot index (no digits → won't be converted by integer pattern)
+
+# Use CJK Unified Ideographs offset as slot index (no digits → won't be re-converted)
 _SLOT_BASE = 0x4E00
+
+# Final cleanup patterns: convert any digits that survived entity restoration
+# (e.g. digits inside protected URLs). Uses non-negative forms to avoid creating
+# spurious "负N" for digits that follow hyphens in technical strings.
+_CLEANUP_DECIMAL = re.compile(r"\d+\.\d+")
+_CLEANUP_INT = re.compile(r"\d+")
 
 
 def _make_slot(i: int) -> str:
@@ -491,18 +493,20 @@ def _make_slot(i: int) -> str:
 _SLOT_RE = re.compile(r"\x00S([\u4e00-\u9fff])E\x00")
 
 
-def _build_allowlist_re(extra: list[str]) -> re.Pattern | None:
-    terms = sorted(set(_DEFAULT_ALLOWLIST + extra), key=len, reverse=True)
-    if not terms:
-        return None
-    return re.compile(r"(?<![a-zA-Z\d])(" + "|".join(re.escape(t) for t in terms) + r")(?![a-zA-Z\d])")
-
-
 class ZhNormalizer(BaseNormalizer):
     def __init__(self, context: dict | None = None):
         super().__init__(context)
-        extra = list(self.context.get("entity_allowlist", []))
-        self._allowlist_re = _build_allowlist_re(extra)
+        # Optional user-supplied allowlist: these tokens are protected verbatim.
+        # NOTE: protected tokens may still contain ASCII digits; callers are
+        # responsible for further handling if strict no-digit output is required.
+        extra: list[str] = list(self.context.get("entity_allowlist", []))
+        if extra:
+            terms = sorted(extra, key=len, reverse=True)
+            self._allowlist_re: re.Pattern | None = re.compile(
+                r"(?<![a-zA-Z\d])(" + "|".join(re.escape(t) for t in terms) + r")(?![a-zA-Z\d])"
+            )
+        else:
+            self._allowlist_re = None
 
     def normalize(self, text: str) -> str:
         return self._apply_patterns(text)
@@ -511,18 +515,17 @@ class ZhNormalizer(BaseNormalizer):
         return self._apply_patterns(token)
 
     def _apply_patterns(self, text: str) -> str:
-        # Protect entities from digit conversion
         slots: list[str] = []
 
         def _protect(m: re.Match) -> str:
             slots.append(m.group(0))
             return _make_slot(len(slots) - 1)
 
-        # Allowlist-based protection (single-letter codes like A4) first
+        # Optional user allowlist (verbatim preservation)
         if self._allowlist_re:
             text = self._allowlist_re.sub(_protect, text)
 
-        # Regex-based protection (multi-letter brand codes, URLs, code spans)
+        # URLs and backtick code spans (preserved verbatim)
         text = _ENTITY_RE.sub(_protect, text)
 
         for pattern, handler in _PATTERNS:
@@ -530,4 +533,9 @@ class ZhNormalizer(BaseNormalizer):
 
         # Restore protected entities
         text = _SLOT_RE.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
+
+        # Final cleanup: convert any digits that survived inside restored entities
+        text = _CLEANUP_DECIMAL.sub(lambda m: _decimal_to_zh(m.group(0)), text)
+        text = _CLEANUP_INT.sub(lambda m: _int_to_zh(int(m.group(0))), text)
+
         return text

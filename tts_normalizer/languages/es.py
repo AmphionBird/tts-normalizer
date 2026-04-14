@@ -373,7 +373,7 @@ _PATTERNS = _build_patterns()
 _ENTITY_RE_ES = re.compile(
     r"https?://\S+"
     r"|`[^`]*`"
-    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-z]?)(?![A-Z\d])"
 )
 _SLOT_BASE_ES = 0xE000
 
@@ -408,8 +408,9 @@ class EsNormalizer(BaseNormalizer):
 
         text = _SLOT_RE_ES.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE_ES], text)
 
-        # Insert space between letter and digit so "USB3.0" → "USB 3.0" before conversion
+        # Insert spaces at letter↔digit boundaries
         text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)
+        text = re.sub(r"(?<=\d)(?=[a-zA-Z])", " ", text)
 
         text = _CLEANUP_DECIMAL_ES.sub(lambda m: _decimal_to_es(m.group(0)), text)
         text = _CLEANUP_INT_ES.sub(lambda m: _int_to_es(int(m.group(0))), text)

@@ -283,7 +283,7 @@ _PATTERNS = _build_patterns()
 _ENTITY_RE = re.compile(
     r"https?://\S+"
     r"|`[^`]*`"
-    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-z]?)(?![A-Z\d])"
 )
 _SLOT_BASE = 0xE000  # Unicode PUA — no word characters, won't be affected by patterns
 
@@ -319,8 +319,10 @@ class EnNormalizer(BaseNormalizer):
 
         text = _SLOT_RE_EN.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
 
-        # Insert space between letter and digit so "USB3.0" → "USB 3.0" before conversion
+        # Insert spaces at letter↔digit boundaries so tokens read naturally:
+        # "USB3.0" → "USB 3.0", "GPT-4o" → "GPT-4 o"
         text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)
+        text = re.sub(r"(?<=\d)(?=[a-zA-Z])", " ", text)
 
         # Convert any digits that survived inside restored entities
         def _en_decimal(m: re.Match) -> str:

@@ -466,14 +466,22 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
-# Entity protection: match brand codes and URLs before digit conversion
+# Default entity allowlist — single-letter-plus-digit codes that should be preserved.
+# ISO paper sizes (A0-A6, B4-B6) and common short product codes.
+# Users can extend via Normalizer(lang="zh", context={"entity_allowlist": [...]}).
+_DEFAULT_ALLOWLIST: list[str] = [
+    "A0", "A1", "A2", "A3", "A4", "A5", "A6",
+    "B4", "B5", "B6",
+]
+
+# Entity protection regexes (applied before digit conversion)
 _ENTITY_RE = re.compile(
     r"https?://\S+"                          # URLs
     r"|`[^`]*`"                              # backtick code spans
     r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"  # brand codes: USB3.0, A380 (not Q1)
 )
-# Use CJK Unified Ideographs PUA offset as slot index (no digits → won't be converted)
-_SLOT_BASE = 0x4E00  # 一 ... safe range of common characters used as index chars
+# Use CJK Unified Ideographs offset as slot index (no digits → won't be converted by integer pattern)
+_SLOT_BASE = 0x4E00
 
 
 def _make_slot(i: int) -> str:
@@ -483,7 +491,19 @@ def _make_slot(i: int) -> str:
 _SLOT_RE = re.compile(r"\x00S([\u4e00-\u9fff])E\x00")
 
 
+def _build_allowlist_re(extra: list[str]) -> re.Pattern | None:
+    terms = sorted(set(_DEFAULT_ALLOWLIST + extra), key=len, reverse=True)
+    if not terms:
+        return None
+    return re.compile(r"(?<![a-zA-Z\d])(" + "|".join(re.escape(t) for t in terms) + r")(?![a-zA-Z\d])")
+
+
 class ZhNormalizer(BaseNormalizer):
+    def __init__(self, context: dict | None = None):
+        super().__init__(context)
+        extra = list(self.context.get("entity_allowlist", []))
+        self._allowlist_re = _build_allowlist_re(extra)
+
     def normalize(self, text: str) -> str:
         return self._apply_patterns(text)
 
@@ -498,6 +518,11 @@ class ZhNormalizer(BaseNormalizer):
             slots.append(m.group(0))
             return _make_slot(len(slots) - 1)
 
+        # Allowlist-based protection (single-letter codes like A4) first
+        if self._allowlist_re:
+            text = self._allowlist_re.sub(_protect, text)
+
+        # Regex-based protection (multi-letter brand codes, URLs, code spans)
         text = _ENTITY_RE.sub(_protect, text)
 
         for pattern, handler in _PATTERNS:

@@ -297,24 +297,44 @@ def _build_patterns():
         ),
     ))
 
-    # 9. CNY with decimal: ¥N.D → 元/角/分
+    # 9. CNY with decimal: ¥N.D → 元/角/分  (truncates to 2 decimal places)
     p.append((
-        re.compile(r"[¥￥](\d+)\.(\d{1,2})"),
+        re.compile(r"-[¥￥](\d+)\.(\d+)"),
+        lambda m: "负" + _cny_to_zh(m.group(1), m.group(2)),
+    ))
+    p.append((
+        re.compile(r"[¥￥](\d+)\.(\d+)"),
         lambda m: _cny_to_zh(m.group(1), m.group(2)),
     ))
 
     # 10. CNY integer
     p.append((
+        re.compile(r"-[¥￥](\d+)"),
+        lambda m: "负" + _int_to_zh(int(m.group(1))) + "元",
+    ))
+    p.append((
         re.compile(r"[¥￥](\d+)"),
         lambda m: _int_to_zh(int(m.group(1))) + "元",
     ))
 
-    # 11. Other currencies
+    # 11. Other currencies (negative variants first)
+    p.append((
+        re.compile(r"-€(\d+(?:\.\d+)?)"),
+        lambda m: "负" + (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "欧元",
+    ))
     p.append((
         re.compile(r"€(\d+(?:\.\d+)?)"),
         lambda m: (
             _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
         ) + "欧元",
+    ))
+    p.append((
+        re.compile(r"-£(\d+(?:\.\d+)?)"),
+        lambda m: "负" + (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "英镑",
     ))
     p.append((
         re.compile(r"£(\d+(?:\.\d+)?)"),
@@ -323,13 +343,25 @@ def _build_patterns():
         ) + "英镑",
     ))
     p.append((
+        re.compile(r"-₩(\d+(?:\.\d+)?)"),
+        lambda m: "负" + (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "韩元",
+    ))
+    p.append((
         re.compile(r"₩(\d+(?:\.\d+)?)"),
         lambda m: (
             _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
         ) + "韩元",
     ))
 
-    # 12. USD $
+    # 12. USD $ (negative first)
+    p.append((
+        re.compile(r"-\$(\d+(?:\.\d+)?)"),
+        lambda m: "负" + (
+            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
+        ) + "美元",
+    ))
     p.append((
         re.compile(r"\$(\d+(?:\.\d+)?)"),
         lambda m: (
@@ -393,7 +425,7 @@ def _build_patterns():
     p.append((re.compile(r"(?<=\d)-(?=\d)"), lambda m: "减"))
 
     # 19b. 2 before measure words → 两
-    _mw = "个只位件杯碗张本台辆条块间套座名人份"
+    _mw = "个只位件杯碗张本台辆条块间套座名人份架棵幅头匹根"
     p.append((
         re.compile(rf"(?<!\d)2(?=[{_mw}])"),
         lambda m: "两",
@@ -434,6 +466,22 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
+# Entity protection: match brand codes and URLs before digit conversion
+_ENTITY_RE = re.compile(
+    r"https?://\S+"                          # URLs
+    r"|`[^`]*`"                              # backtick code spans
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"  # brand codes: USB3.0, A380 (not Q1)
+)
+# Use CJK Unified Ideographs PUA offset as slot index (no digits → won't be converted)
+_SLOT_BASE = 0x4E00  # 一 ... safe range of common characters used as index chars
+
+
+def _make_slot(i: int) -> str:
+    return "\x00S" + chr(_SLOT_BASE + i) + "E\x00"
+
+
+_SLOT_RE = re.compile(r"\x00S([\u4e00-\u9fff])E\x00")
+
 
 class ZhNormalizer(BaseNormalizer):
     def normalize(self, text: str) -> str:
@@ -443,6 +491,18 @@ class ZhNormalizer(BaseNormalizer):
         return self._apply_patterns(token)
 
     def _apply_patterns(self, text: str) -> str:
+        # Protect entities from digit conversion
+        slots: list[str] = []
+
+        def _protect(m: re.Match) -> str:
+            slots.append(m.group(0))
+            return _make_slot(len(slots) - 1)
+
+        text = _ENTITY_RE.sub(_protect, text)
+
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
+
+        # Restore protected entities
+        text = _SLOT_RE.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
         return text

@@ -370,6 +370,22 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
+_ENTITY_RE_ES = re.compile(
+    r"https?://\S+"
+    r"|`[^`]*`"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"
+)
+_SLOT_BASE_ES = 0xE000
+
+
+def _make_slot_es(i: int) -> str:
+    return "\x00S" + chr(_SLOT_BASE_ES + i) + "\x00"
+
+
+_SLOT_RE_ES = re.compile(r"\x00S([\uE000-\uF8FF])\x00")
+_CLEANUP_DECIMAL_ES = re.compile(r"\d+\.\d+")
+_CLEANUP_INT_ES = re.compile(r"\d+")
+
 
 class EsNormalizer(BaseNormalizer):
     def normalize(self, text: str) -> str:
@@ -379,6 +395,23 @@ class EsNormalizer(BaseNormalizer):
         return self._apply(token)
 
     def _apply(self, text: str) -> str:
+        slots: list[str] = []
+
+        def _protect(m: re.Match) -> str:
+            slots.append(m.group(0))
+            return _make_slot_es(len(slots) - 1)
+
+        text = _ENTITY_RE_ES.sub(_protect, text)
+
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
+
+        text = _SLOT_RE_ES.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE_ES], text)
+
+        # Insert space between letter and digit so "USB3.0" → "USB 3.0" before conversion
+        text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)
+
+        text = _CLEANUP_DECIMAL_ES.sub(lambda m: _decimal_to_es(m.group(0)), text)
+        text = _CLEANUP_INT_ES.sub(lambda m: _int_to_es(int(m.group(0))), text)
+
         return text

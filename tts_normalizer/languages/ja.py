@@ -329,6 +329,22 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
+_ENTITY_RE_JA = re.compile(
+    r"https?://\S+"
+    r"|`[^`]*`"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"
+)
+_SLOT_BASE_JA = 0xE000
+
+
+def _make_slot_ja(i: int) -> str:
+    return "\x00J" + chr(_SLOT_BASE_JA + i) + "\x00"
+
+
+_SLOT_RE_JA = re.compile(r"\x00J([\uE000-\uF8FF])\x00")
+_CLEANUP_DECIMAL_JA = re.compile(r"\d+\.\d+")
+_CLEANUP_INT_JA = re.compile(r"\d+")
+
 
 class JaNormalizer(BaseNormalizer):
     def normalize(self, text: str) -> str:
@@ -338,6 +354,20 @@ class JaNormalizer(BaseNormalizer):
         return self._apply_patterns(token)
 
     def _apply_patterns(self, text: str) -> str:
+        slots: list[str] = []
+
+        def _protect(m: re.Match) -> str:
+            slots.append(m.group(0))
+            return _make_slot_ja(len(slots) - 1)
+
+        text = _ENTITY_RE_JA.sub(_protect, text)
+
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
+
+        text = _SLOT_RE_JA.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE_JA], text)
+
+        text = _CLEANUP_DECIMAL_JA.sub(lambda m: _decimal_to_ja(m.group(0)), text)
+        text = _CLEANUP_INT_JA.sub(lambda m: _int_to_ja(int(m.group(0))), text)
+
         return text

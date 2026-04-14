@@ -277,6 +277,26 @@ def _build_patterns():
 
 _PATTERNS = _build_patterns()
 
+# Entity protection: shield brand codes, URLs, and backtick spans from mangling.
+# e.g. "GPT-4" without protection → "GPTnegative four" (hyphen misread as minus).
+# After restoration, a cleanup pass converts any remaining digits to spoken form.
+_ENTITY_RE = re.compile(
+    r"https?://\S+"
+    r"|`[^`]*`"
+    r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*|[A-Z]-?\d{2,}(?:\.\d+)*)(?![a-zA-Z])"
+)
+_SLOT_BASE = 0xE000  # Unicode PUA — no word characters, won't be affected by patterns
+
+
+def _make_slot_en(i: int) -> str:
+    return "\x00E" + chr(_SLOT_BASE + i) + "\x00"
+
+
+_SLOT_RE_EN = re.compile(r"\x00E([\uE000-\uF8FF])\x00")
+
+_CLEANUP_DECIMAL_EN = re.compile(r"\d+\.\d+")
+_CLEANUP_INT_EN = re.compile(r"\d+")
+
 
 class EnNormalizer(BaseNormalizer):
     def normalize(self, text: str) -> str:
@@ -286,6 +306,30 @@ class EnNormalizer(BaseNormalizer):
         return self._apply(token)
 
     def _apply(self, text: str) -> str:
+        slots: list[str] = []
+
+        def _protect(m: re.Match) -> str:
+            slots.append(m.group(0))
+            return _make_slot_en(len(slots) - 1)
+
+        text = _ENTITY_RE.sub(_protect, text)
+
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
+
+        text = _SLOT_RE_EN.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
+
+        # Insert space between letter and digit so "USB3.0" → "USB 3.0" before conversion
+        text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)
+
+        # Convert any digits that survived inside restored entities
+        def _en_decimal(m: re.Match) -> str:
+            s = m.group(0)
+            i, f = s.split(".")
+            return _int_to_en(int(i)) + " point " + " ".join(
+                _ONES[int(c)] or "zero" for c in f
+            )
+        text = _CLEANUP_DECIMAL_EN.sub(_en_decimal, text)
+        text = _CLEANUP_INT_EN.sub(lambda m: _int_to_en(int(m.group(0))), text)
+
         return text

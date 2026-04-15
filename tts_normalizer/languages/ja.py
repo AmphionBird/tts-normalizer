@@ -106,7 +106,15 @@ def _sci_to_ja(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
 def _build_patterns():
     p = []
 
-    # 0. Thousands comma removal (12,345 → 12345)
+    # 0. 大字（正式漢字）→ 通常漢字（TTS誤読防止）
+    _daiji = {"壱": "一", "弐": "二", "参": "三", "伍": "五", "玖": "九", "拾": "十",
+              "佰": "百", "仟": "千", "萬": "万"}
+    p.append((
+        re.compile("[" + "".join(_daiji.keys()) + "]"),
+        lambda m, d=_daiji: d.get(m.group(0), m.group(0)),
+    ))
+
+    # 0b. Thousands comma removal (12,345 → 12345)
     p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
 
     # 1a. IP address (before version-number and decimal patterns)
@@ -181,11 +189,13 @@ def _build_patterns():
     ))
 
     # 5. Time: HH:MM
+    # Omit 分 when minutes == 0, EXCEPT at 0:00 (midnight) where explicit 零時零分 is clearer
     p.append((
         re.compile(r"(\d{1,2}):(\d{2})(?!\d)"),
         lambda m: (
             _int_to_ja(int(m.group(1))) + "時"
-            + ("" if int(m.group(2)) == 0 else _int_to_ja(int(m.group(2))) + "分")
+            + ("" if int(m.group(2)) == 0 and int(m.group(1)) != 0
+               else _int_to_ja(int(m.group(2))) + "分")
         ),
     ))
 

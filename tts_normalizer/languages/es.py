@@ -112,6 +112,20 @@ def _decimal_to_es(s: str) -> str:
     return _int_to_es(int(i)) + " coma " + " ".join(_ONES[int(c)] for c in f)
 
 
+def _digits_to_es(s: str) -> str:
+    """Read digits one-by-one."""
+    return " ".join(_ONES[int(c)] for c in s)
+
+
+def _silent_hyphen_token_to_es(token: str) -> str:
+    """Drop no-space hyphens in code-like tokens and read digits digit-by-digit."""
+    def _normalize_part(part: str) -> str:
+        part = re.sub(r"\d+", lambda m: " " + _digits_to_es(m.group(0)) + " ", part)
+        return re.sub(r"\s+", " ", part).strip()
+
+    return " ".join(part for part in (_normalize_part(p) for p in token.split("-")) if part)
+
+
 def _fraction_es(num: int, den: int) -> str:
     # "uno" → "un" before masculine nouns (un medio, un tercio, …)
     num_word = "un" if num == 1 else _int_to_es(num)
@@ -338,6 +352,15 @@ def _build_patterns():
         ) + " " + um[m.group(2)],
     ))
 
+    # 14. Minus / hyphen: only spaced non-whitespace expressions read the hyphen.
+    p.append((re.compile(r"(?<=\S)\s+-\s+(?=\S)"), lambda m: " menos "))
+
+    # 14b. No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
+    p.append((
+        re.compile(r"(?<!-)([^\s-]+(?:-[^\s-]+)+)"),
+        lambda m: _silent_hyphen_token_to_es(m.group(1)),
+    ))
+
     # 15. Decimal
     p.append((
         re.compile(r"-?\d+\.\d+"),
@@ -406,7 +429,15 @@ class EsNormalizer(BaseNormalizer):
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
 
-        text = _SLOT_RE_ES.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE_ES], text)
+        def _restore(m: re.Match) -> str:
+            value = slots[ord(m.group(1)) - _SLOT_BASE_ES]
+            if value.startswith(("http://", "https://", "`")):
+                return value
+            if re.search(r"\S-\S", value):
+                return _silent_hyphen_token_to_es(value)
+            return value
+
+        text = _SLOT_RE_ES.sub(_restore, text)
 
         # Insert spaces at letter↔digit boundaries
         text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)

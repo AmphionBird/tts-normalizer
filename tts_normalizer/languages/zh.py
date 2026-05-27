@@ -98,6 +98,17 @@ def _decimal_to_zh(s: str) -> str:
     return integer_part + "点" + frac_part
 
 
+def _digits_to_zh(s: str) -> str:
+    """Read digits one-by-one."""
+    return "".join(_DIGITS[int(c)] for c in s)
+
+
+def _silent_hyphen_token_to_zh(token: str) -> str:
+    """Drop no-space hyphens in code-like tokens and read digits digit-by-digit."""
+    token = token.replace("-", "")
+    return re.sub(r"\d+", lambda m: _digits_to_zh(m.group(0)), token)
+
+
 def _cny_to_zh(int_str: str, dec_str: str) -> str:
     """CNY amount → 元/角/分 spoken form."""
     dec_str = (dec_str + "0")[:2]
@@ -415,14 +426,14 @@ def _build_patterns():
         lambda m: "".join(_DIGITS[int(c)] for c in m.group(1) + m.group(2) + m.group(3)),
     ))
 
-    # 18. Range: digit-minus-digit + Chinese char → 到
-    p.append((
-        re.compile(r"(\d+)-(\d+)(?=[\u4e00-\u9fff])"),
-        lambda m: _int_to_zh(int(m.group(1))) + "到" + _int_to_zh(int(m.group(2))),
-    ))
+    # 18. Subtraction: only spaced non-whitespace expressions read the hyphen.
+    p.append((re.compile(r"(?<=\S)\s+-\s+(?=\S)"), lambda m: "减"))
 
-    # 19. Subtraction: digit-minus-digit → 减
-    p.append((re.compile(r"(?<=\d)-(?=\d)"), lambda m: "减"))
+    # 19. No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
+    p.append((
+        re.compile(r"(?<!-)([^\s-]+(?:-[^\s-]+)+)"),
+        lambda m: _silent_hyphen_token_to_zh(m.group(1)),
+    ))
 
     # 19b. 2 before measure words → 两
     _mw = "个只位件杯碗张本台辆条块间套座名人份架棵幅头匹根颗粒把双对群批排栋层所道首篇封面堆捆串"
@@ -531,8 +542,16 @@ class ZhNormalizer(BaseNormalizer):
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
 
+        def _restore(m: re.Match) -> str:
+            value = slots[ord(m.group(1)) - _SLOT_BASE]
+            if value.startswith(("http://", "https://", "`")):
+                return value
+            if re.search(r"\S-\S", value):
+                return _silent_hyphen_token_to_zh(value)
+            return value
+
         # Restore protected entities
-        text = _SLOT_RE.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
+        text = _SLOT_RE.sub(_restore, text)
 
         # Final cleanup: convert any digits that survived inside restored entities
         text = _CLEANUP_DECIMAL.sub(lambda m: _decimal_to_zh(m.group(0)), text)

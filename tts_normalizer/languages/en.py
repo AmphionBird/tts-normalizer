@@ -164,6 +164,15 @@ def _digits_en(s: str) -> str:
     return " ".join(_ONES[int(c)] or "zero" for c in s)
 
 
+def _silent_hyphen_token_to_en(token: str) -> str:
+    """Drop no-space hyphens in code-like tokens and read digits digit-by-digit."""
+    def _normalize_part(part: str) -> str:
+        part = re.sub(r"\d+", lambda m: " " + _digits_en(m.group(0)) + " ", part)
+        return re.sub(r"\s+", " ", part).strip()
+
+    return " ".join(part for part in (_normalize_part(p) for p in token.split("-")) if part)
+
+
 def _decade_to_en(year: int) -> str:
     """1980 → 'nineteen eighties', 2010 → 'twenty tens', 2000 → 'two thousands'."""
     lo = year % 100
@@ -406,6 +415,16 @@ def _build_patterns():
     p.append((
         re.compile(r"\b(\d{1,2}):(\d{2})\b"),
         lambda m: _time_hm(int(m.group(1)), int(m.group(2))),
+    ))
+
+    # ── Minus / hyphen ───────────────────────────────────────────────────────
+    # Only spaced non-whitespace expressions read the hyphen as "minus".
+    p.append((re.compile(r"(?<=\S)\s+-\s+(?=\S)"), lambda m: " minus "))
+
+    # No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
+    p.append((
+        re.compile(r"(?<!-)([^\s-]+(?:-[^\s-]+)+)"),
+        lambda m: _silent_hyphen_token_to_en(m.group(1)),
     ))
 
     # ── Temperature ──────────────────────────────────────────────────────────
@@ -685,7 +704,15 @@ class EnNormalizer(BaseNormalizer):
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
 
-        text = _SLOT_RE_EN.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE], text)
+        def _restore(m: re.Match) -> str:
+            value = slots[ord(m.group(1)) - _SLOT_BASE]
+            if value.startswith(("http://", "https://", "`")):
+                return value
+            if re.search(r"\S-\S", value):
+                return _silent_hyphen_token_to_en(value)
+            return value
+
+        text = _SLOT_RE_EN.sub(_restore, text)
 
         # Insert spaces at letter↔digit boundaries
         text = re.sub(r"(?<=[a-zA-Z])(?=\d)", " ", text)

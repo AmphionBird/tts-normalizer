@@ -83,6 +83,17 @@ def _decimal_to_ja(s: str) -> str:
             + "".join(_DIGITS_JA[int(c)] for c in frac_str))
 
 
+def _digits_to_ja(s: str) -> str:
+    """Read digits one-by-one."""
+    return "".join(_DIGITS_JA[int(c)] for c in s)
+
+
+def _silent_hyphen_token_to_ja(token: str) -> str:
+    """Drop no-space hyphens in code-like tokens and read digits digit-by-digit."""
+    token = token.replace("-", "")
+    return re.sub(r"\d+", lambda m: _digits_to_ja(m.group(0)), token)
+
+
 def _sci_to_ja(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
     e = int(exp_str)
     if neg_exp:
@@ -304,6 +315,15 @@ def _build_patterns():
         lambda m: "".join(_DIGITS_JA[int(c)] for c in m.group(1) + m.group(2) + m.group(3)),
     ))
 
+    # 14b. Minus / hyphen: only spaced non-whitespace expressions read the hyphen.
+    p.append((re.compile(r"(?<=\S)\s+-\s+(?=\S)"), lambda m: "マイナス"))
+
+    # 14c. No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
+    p.append((
+        re.compile(r"(?<!-)([^\s-]+(?:-[^\s-]+)+)"),
+        lambda m: _silent_hyphen_token_to_ja(m.group(1)),
+    ))
+
     # 15. Decimal
     p.append((
         re.compile(r"-?\d+\.\d+"),
@@ -375,7 +395,15 @@ class JaNormalizer(BaseNormalizer):
         for pattern, handler in _PATTERNS:
             text = pattern.sub(handler, text)
 
-        text = _SLOT_RE_JA.sub(lambda m: slots[ord(m.group(1)) - _SLOT_BASE_JA], text)
+        def _restore(m: re.Match) -> str:
+            value = slots[ord(m.group(1)) - _SLOT_BASE_JA]
+            if value.startswith(("http://", "https://", "`")):
+                return value
+            if re.search(r"\S-\S", value):
+                return _silent_hyphen_token_to_ja(value)
+            return value
+
+        text = _SLOT_RE_JA.sub(_restore, text)
 
         text = _CLEANUP_DECIMAL_JA.sub(lambda m: _decimal_to_ja(m.group(0)), text)
         text = _CLEANUP_INT_JA.sub(lambda m: _int_to_ja(int(m.group(0))), text)

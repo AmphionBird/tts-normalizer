@@ -223,14 +223,12 @@ def _build_patterns():
         lambda m: "过去" + _int_to_zh(int(m.group(1))) + "年",
     ))
 
-    # 1. Date: YYYY-MM-DD or YYYY/MM/DD (leading-zero month/day → 零X)
+    # 1. Date: YYYY-MM-DD or YYYY/MM/DD (leading zeros stripped — dates never read "零四月")
     p.append((
         re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
         lambda m: (
             _year_to_zh(m.group(1)) + "年"
-            + ("零" if m.group(2).startswith("0") else "")
             + _int_to_zh(int(m.group(2))) + "月"
-            + ("零" if m.group(3).startswith("0") else "")
             + _int_to_zh(int(m.group(3))) + "日"
         ),
     ))

@@ -3,9 +3,6 @@ import sys
 sys.path.insert(0, "/home/babysor00/tts-normalizer")
 from tts_normalizer import Normalizer
 
-zh = Normalizer(lang="zh")
-en = Normalizer(lang="en")
-
 cases_zh = [
     # 科学计数法
     ("1.5×10^6",    "一百五十万"),
@@ -39,6 +36,8 @@ cases_zh = [
     ("22",          "二十二"),
     # 减法（回归）
     ("10-3=7",      "十减三等于七"),
+    ("x-3=7",       "x减三等于七"),
+    ("3x-2y=4",     "三x减二y等于四"),
 ]
 
 cases_en = [
@@ -72,7 +71,7 @@ cases_en = [
     ("21st",        "twenty-first"),
     ("100th",       "one hundredth"),
     # 日期时间
-    ("April 13, 2026",  "April thirteenth, twenty twenty-six"),
+    ("April 13, 2026",  "April thirteenth, twenty twenty six"),
     ("10:30 AM",        "ten thirty AM"),
     ("3:05 PM",         "three oh five PM"),
     # 单位
@@ -84,32 +83,39 @@ cases_en = [
     ("1-800-555-1234",  "one eight hundred five five five one two three four"),
 ]
 
-passed = failed = 0
-failures = []
+def run():
+    zh = Normalizer(lang="zh")
+    en = Normalizer(lang="en")
+    passed = failed = 0
+    failures = []
 
-for inp, expected in cases_zh:
-    got = zh.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append(("ZH", inp, expected, got))
+    for inp, expected in cases_zh:
+        got = zh.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append(("ZH", inp, expected, got))
 
-for inp, expected in cases_en:
-    got = en.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append(("EN", inp, expected, got))
+    for inp, expected in cases_en:
+        got = en.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append(("EN", inp, expected, got))
 
-print(f"\n{'='*65}")
-print(f"PASSED: {passed}/{passed+failed}  (ZH={len(cases_zh)}, EN={len(cases_en)})")
-print(f"FAILED: {failed}/{passed+failed}")
-if failures:
-    print("\nFailed cases:")
-    for lang, inp, exp, got in failures:
-        print(f"  [{lang}] Input:    {inp!r}")
-        print(f"       Expected: {exp!r}")
-        print(f"       Got:      {got!r}")
-        print()
+    print(f"\n{'='*65}")
+    print(f"PASSED: {passed}/{passed+failed}  (ZH={len(cases_zh)}, EN={len(cases_en)})")
+    print(f"FAILED: {failed}/{passed+failed}")
+    if failures:
+        print("\nFailed cases:")
+        for lang, inp, exp, got in failures:
+            print(f"  [{lang}] Input:    {inp!r}")
+            print(f"       Expected: {exp!r}")
+            print(f"       Got:      {got!r}")
+            print()
+
+
+if __name__ == "__main__":
+    run()

@@ -3,8 +3,6 @@ import sys
 sys.path.insert(0, "/home/babysor00/tts-normalizer")
 from tts_normalizer import Normalizer
 
-zh = Normalizer(lang="zh")
-
 cases = [
     # 数字基础
     ("0",        "零"),
@@ -68,23 +66,29 @@ cases = [
     ("今天气温10.5度，股价上涨3.5%，售价¥199", "今天气温十点五度，股价上涨百分之三点五，售价一百九十九元"),
 ]
 
-passed = failed = 0
-failures = []
-for inp, expected in cases:
-    got = zh.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append((inp, expected, got))
+def run():
+    zh = Normalizer(lang="zh")
+    passed = failed = 0
+    failures = []
+    for inp, expected in cases:
+        got = zh.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append((inp, expected, got))
 
-print(f"\n{'='*60}")
-print(f"PASSED: {passed}/{passed+failed}")
-print(f"FAILED: {failed}/{passed+failed}")
-if failures:
-    print("\nFailed cases:")
-    for inp, exp, got in failures:
-        print(f"  Input:    {inp!r}")
-        print(f"  Expected: {exp!r}")
-        print(f"  Got:      {got!r}")
-        print()
+    print(f"\n{'='*60}")
+    print(f"PASSED: {passed}/{passed+failed}")
+    print(f"FAILED: {failed}/{passed+failed}")
+    if failures:
+        print("\nFailed cases:")
+        for inp, exp, got in failures:
+            print(f"  Input:    {inp!r}")
+            print(f"  Expected: {exp!r}")
+            print(f"  Got:      {got!r}")
+            print()
+
+
+if __name__ == "__main__":
+    run()

@@ -3,9 +3,6 @@ import sys
 sys.path.insert(0, "/home/babysor00/tts-normalizer")
 from tts_normalizer import Normalizer
 
-zh = Normalizer(lang="zh")
-en = Normalizer(lang="en")
-
 cases_en = [
     # 年份读法
     ("2026",        "twenty twenty-six"),
@@ -58,32 +55,39 @@ cases_zh_mixed = [
     ("存储空间还剩1.5GB",           "存储空间还剩一点五GB"),
 ]
 
-passed = failed = 0
-failures = []
+def run():
+    zh = Normalizer(lang="zh")
+    en = Normalizer(lang="en")
+    passed = failed = 0
+    failures = []
 
-for inp, expected in cases_en:
-    got = en.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append(("EN", inp, expected, got))
+    for inp, expected in cases_en:
+        got = en.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append(("EN", inp, expected, got))
 
-for inp, expected in cases_zh_mixed:
-    got = zh.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append(("ZH", inp, expected, got))
+    for inp, expected in cases_zh_mixed:
+        got = zh.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append(("ZH", inp, expected, got))
 
-print(f"\n{'='*65}")
-print(f"PASSED: {passed}/{passed+failed}  (EN={len(cases_en)}, ZH_mixed={len(cases_zh_mixed)})")
-print(f"FAILED: {failed}/{passed+failed}")
-if failures:
-    print("\nFailed cases:")
-    for lang, inp, exp, got in failures:
-        print(f"  [{lang}] Input:    {inp!r}")
-        print(f"         Expected: {exp!r}")
-        print(f"         Got:      {got!r}")
-        print()
+    print(f"\n{'='*65}")
+    print(f"PASSED: {passed}/{passed+failed}  (EN={len(cases_en)}, ZH_mixed={len(cases_zh_mixed)})")
+    print(f"FAILED: {failed}/{passed+failed}")
+    if failures:
+        print("\nFailed cases:")
+        for lang, inp, exp, got in failures:
+            print(f"  [{lang}] Input:    {inp!r}")
+            print(f"         Expected: {exp!r}")
+            print(f"         Got:      {got!r}")
+            print()
+
+
+if __name__ == "__main__":
+    run()

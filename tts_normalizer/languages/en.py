@@ -241,6 +241,12 @@ def _build_patterns():
     # ── Comma removal ────────────────────────────────────────────────────────
     p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
 
+    # ── IP addresses ─────────────────────────────────────────────────────────
+    p.append((
+        re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"),
+        lambda m: " dot ".join(_digits_en(part) for part in m.groups()),
+    ))
+
     # ── Abbreviations ────────────────────────────────────────────────────────
     p.append((re.compile(r"\bNo\.\s*(\d+)"), lambda m: "Number " + _int_to_en(int(m.group(1)))))
     p.append((re.compile(r"\bDr\."), lambda m: "Doctor"))
@@ -409,6 +415,17 @@ def _build_patterns():
     p.append((
         re.compile(r"\b(\d{1,2})(am|pm)\b", re.IGNORECASE),
         lambda m: _int_to_en(int(m.group(1))) + " " + m.group(2).upper(),
+    ))
+
+    # ── Code / serial-number context words → digit-by-digit ─────────────────
+    _code_ctx = (
+        r"verification code|security code|passcode|code|pin|otp|room number|room|"
+        r"zip code|zip|postal code|id|account number|order number|serial number|"
+        r"invoice number|ticket number"
+    )
+    p.append((
+        re.compile(rf"\b({_code_ctx})\s*[:#-]?\s*(\d+)\b", re.IGNORECASE),
+        lambda m: m.group(1) + " " + _digits_en(m.group(2)),
     ))
 
     # Time HH:MM plain (leading-zero minutes → "oh X")

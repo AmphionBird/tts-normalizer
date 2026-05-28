@@ -26,7 +26,7 @@ zh.normalize("2026年4月13日气温-5°C")
 # → "二零二六年四月十三日气温负五摄氏度"
 
 en.normalize("The temperature is -5°C on April 13, 2026.")
-# → "The temperature is negative five degrees Celsius on April thirteenth, twenty twenty-six."
+# → "The temperature is negative five degrees Celsius on April thirteenth, twenty twenty six."
 
 ja.normalize("2026年4月13日、気温-5°C、湿度50%です。")
 # → "二〇二六年四月十三日、気温マイナス五度、五十パーセントです。"
@@ -54,7 +54,7 @@ es.normalize_token("€1.50")  # → "un euro y cincuenta céntimos"
 | Fractions | `3/4` → 四分之三 | `3/4` → three quarters | `3/4` → 四分の三 | `3/4` → tres cuartos |
 | Percentages | `50%` → 百分之五十 | `50%` → fifty percent | `50%` → 五十パーセント | `50%` → cincuenta por ciento |
 | Currency | `¥12.50` → 十二元五角 | `$9.99` → nine dollars and ninety-nine cents | `¥1500` → 千五百円 | `€1.50` → un euro y cincuenta céntimos |
-| Dates | `2026-04-13` → 二零二六年零四月十三日 | `April 13, 2026` → April thirteenth, twenty twenty-six | `2026-04-13` → 二〇二六年四月十三日 | `2026-04-13` → trece de abril de dos mil veintiséis |
+| Dates | `2026-04-13` → 二零二六年零四月十三日 | `April 13, 2026` → April thirteenth, twenty twenty six | `2026-04-13` → 二〇二六年四月十三日 | `2026-04-13` → trece de abril de dos mil veintiséis |
 | Times | `10:05` → 十点零五分 | `10:05` → ten oh five | `10:30` → 十時三十分 | `3:15` → las tres y cuarto |
 | Years | `1999年` → 一九九九年 | `1999` → nineteen ninety-nine | `2026年` → 二〇二六年 | `1999` → mil novecientos noventa y nueve |
 | Units | `50kg` → 五十千克 | `10cm` → ten centimeters, `60 mph` → sixty miles per hour, `2.4 GHz` → two point four gigahertz | `50kg` → 五十キログラム | `50kg` → cincuenta kilogramos |
@@ -75,11 +75,11 @@ es.normalize_token("€1.50")  # → "un euro y cincuenta céntimos"
 | Percentages | `2.5%` | two point five percent |
 | Fractions | `3/4`, `2 1/2` | three quarters, two and a half |
 | **Dates** | | |
-| ISO date | `2026-04-13` | April thirteenth, twenty twenty-six |
-| American | `April 13, 2026` / `apr. 13, 2026` | April thirteenth, twenty twenty-six |
+| ISO date | `2026-04-13` | April thirteenth, twenty twenty six |
+| American | `April 13, 2026` / `apr. 13, 2026` | April thirteenth, twenty twenty six |
 | European | `25 July 2012` / `25th july 2012` | the twenty-fifth of July twenty twelve |
 | **Times** | | |
-| 24h clock | `23:00` | twenty-three o'clock |
+| 24h clock | `23:00` | twenty three o'clock |
 | 12h with AM/PM | `1:59 p.m.` / `1:59 pm` | one fifty-nine PM |
 | With timezone | `1:59 pm EST` / `1:59 p.m.est` | one fifty-nine PM EST |
 | Dot separator | `1.59 p.m.` | one fifty-nine PM |
@@ -111,7 +111,7 @@ es.normalize_token("€1.50")  # → "un euro y cincuenta céntimos"
 | Pressure | `100psi`, `2atm` | one hundred pounds per square inch, two atmospheres |
 | Voltage/current | `5V`, `100mA` | five volts, one hundred milliamperes |
 | **Decades** | `1980s`, `'80s`, `2010s` | nineteen eighties, eighties, twenty tens |
-| **Abbreviations** | `Dr.`, `No. 42`, `vs.` | Doctor, Number forty-two, versus |
+| **Abbreviations** | `Dr.`, `No. 42`, `vs.` | Doctor, Number forty two, versus |
 
 ### Style choices (vs. NeMo TN)
 
@@ -119,6 +119,7 @@ es.normalize_token("€1.50")  # → "un euro y cincuenta céntimos"
 |---------|-------------|-----------|
 | Negatives | "minus two" | "negative two" |
 | Compounds | "twenty three" | "twenty-three" |
+| Year phrases in dates/times | "twenty twenty-six" | "twenty twenty six" |
 | Cardinals with "and" | "one hundred and twenty" | "one hundred twenty" |
 | Money with "and" | "twenty dollars fifty cents" | "twenty dollars and fifty cents" |
 
@@ -161,6 +162,21 @@ zh = Normalizer(lang="zh", context={"entity_allowlist": ["GPT-4o", "v1"]})
 zh.normalize("调用GPT-4o的v1接口")
 # → "调用GPT-四o的v一接口"  (digits still converted by cleanup pass)
 ```
+
+## Test set
+
+Chinese and English normalization examples are collected in a shared iterable test
+set at `tests/case_sets.py`.
+
+The shared set includes:
+- zh/en smoke tests
+- English public samples from NeMo TN
+- zh/en linguist batch cases
+- zh known-limitation regression cases
+
+`tests/test_case_sets.py` runs the full iterable set with `pytest`. To add a new
+Chinese or English regression case, add it to the relevant source list imported by
+`tests/case_sets.py`; it will automatically be included in the shared test run.
 
 ## Extending to a new language
 

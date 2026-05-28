@@ -10,8 +10,6 @@ import sys
 sys.path.insert(0, "/home/babysor00/tts-normalizer")
 from tts_normalizer import Normalizer
 
-zh = Normalizer(lang="zh")
-
 cases = [
     # --- Limitation 6: expanded measure words ---
     ("2架飞机",         "两架飞机"),
@@ -48,32 +46,38 @@ cases = [
     # Code span protection
     ("执行`rm -rf /`命令",  "执行`rm -rf /`命令"),
 
-    # --- Limitation 2: brand codes — digits converted, hyphens not mangled ---
+    # --- Limitation 2: brand codes — digits converted, separators normalized ---
     # Fixed integer pattern ((?<![a-zA-Z])) prevents "GPT-4" → "GPT负四"
     ("波音A380客机",    "波音A三百八十客机"),
     ("用USB3.0连接",    "用USB三点零连接"),
-    ("GPT-4模型",       "GPT-四模型"),
+    ("GPT-4模型",       "GPT四模型"),
     ("A4纸",            "A四纸"),
     ("Q1季度",          "Q一季度"),
 ]
 
-passed = failed = 0
-failures = []
-for inp, expected in cases:
-    got = zh.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append((inp, expected, got))
+def run():
+    zh = Normalizer(lang="zh")
+    passed = failed = 0
+    failures = []
+    for inp, expected in cases:
+        got = zh.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append((inp, expected, got))
 
-print(f"\n{'='*65}")
-print(f"PASSED: {passed}/{passed+failed}")
-print(f"FAILED: {failed}/{passed+failed}")
-if failures:
-    print("\nFailed cases:")
-    for inp, exp, got in failures:
-        print(f"  Input:    {inp!r}")
-        print(f"  Expected: {exp!r}")
-        print(f"  Got:      {got!r}")
-        print()
+    print(f"\n{'='*65}")
+    print(f"PASSED: {passed}/{passed+failed}")
+    print(f"FAILED: {failed}/{passed+failed}")
+    if failures:
+        print("\nFailed cases:")
+        for inp, exp, got in failures:
+            print(f"  Input:    {inp!r}")
+            print(f"  Expected: {exp!r}")
+            print(f"  Got:      {got!r}")
+            print()
+
+
+if __name__ == "__main__":
+    run()

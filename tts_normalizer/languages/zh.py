@@ -103,6 +103,11 @@ def _digits_to_zh(s: str) -> str:
     return "".join(_DIGITS[int(c)] for c in s)
 
 
+def _number_to_zh(s: str) -> str:
+    """Read an integer or decimal as a regular number."""
+    return _decimal_to_zh(s) if "." in s else _int_to_zh(int(s))
+
+
 def _silent_hyphen_token_to_zh(token: str) -> str:
     """Drop no-space hyphens in code-like tokens and read digits digit-by-digit."""
     token = token.replace("-", "")
@@ -197,10 +202,10 @@ def _build_patterns():
     ))
 
     # 0b. Code / serial-number context words → digit-by-digit
-    for ctx in ["邮编", "邮政编码", "房间号", "门牌号",
-                "末四位", "末六位", "末八位", "末三位", "学号", "工号"]:
+    for ctx in ["验证码", "校验码", "编号", "序列号", "订单号", "邮编", "邮政编码",
+                "房间号", "门牌号", "末四位", "末六位", "末八位", "末三位", "学号", "工号"]:
         p.append((
-            re.compile(rf"{ctx}(\d+)"),
+            re.compile(rf"{ctx}[:：]?\s*(\d+)"),
             lambda m, c=ctx: c + "".join(_DIGITS[int(d)] for d in m.group(1)),
         ))
 
@@ -384,6 +389,57 @@ def _build_patterns():
         lambda m: f"{_int_to_zh(int(m.group(2)))}分之{_int_to_zh(int(m.group(1)))}",
     ))
 
+    _unit_map = {
+        "kg": "千克", "g": "克", "mg": "毫克",
+        "km/h": "千米每小时",
+        "km": "千米", "m": "米", "cm": "厘米", "mm": "毫米",
+        "L": "升", "ml": "毫升", "mL": "毫升",
+        "GHz": "吉赫兹", "MHz": "兆赫兹", "kHz": "千赫兹", "Hz": "赫兹",
+        "kW": "千瓦", "W": "瓦", "V": "伏", "A": "安",
+    }
+    unit_re = "|".join(re.escape(u) for u in sorted(_unit_map, key=len, reverse=True))
+    range_suffix_re = "|".join(
+        re.escape(s)
+        for s in sorted(
+            [
+                *list(_unit_map),
+                "摄氏度", "华氏度", "个百分点", "百分点", "人民币", "块钱",
+                "美元", "欧元", "英镑", "韩元", "公里", "千米", "厘米", "毫米",
+                "公斤", "千克", "毫克", "小时", "分钟", "个月", "元", "块",
+                "岁", "年", "月", "日", "天", "人", "名", "个", "页", "次",
+                "倍", "分", "秒", "度", "℃", "°C",
+            ],
+            key=len,
+            reverse=True,
+        )
+    )
+    p.append((
+        re.compile(rf"(?<![A-Za-z0-9])(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)(?:({range_suffix_re}))"),
+        lambda m, um=_unit_map: (
+            _number_to_zh(m.group(1)) + "到" + _number_to_zh(m.group(2))
+            + um.get(m.group(3), "摄氏度" if m.group(3) in {"℃", "°C"} else m.group(3))
+        ),
+    ))
+
+    # No-space equation subtraction, including variable expressions such as x-3=7.
+    p.append((
+        re.compile(r"(?<=[A-Za-z0-9\u4e00-\u9fff\)])-(?=[A-Za-z0-9\u4e00-\u9fff\(][^\s=]*=)"),
+        lambda m: "减",
+    ))
+
+    negative_unit_map = {**_unit_map, "℃": "摄氏度", "°C": "摄氏度"}
+    negative_unit_re = "|".join(re.escape(u) for u in sorted(negative_unit_map, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(?<![A-Za-z0-9])-(\d+(?:\.\d+)?)({negative_unit_re})(?![A-Za-z])"),
+        lambda m, um=negative_unit_map: "负" + _number_to_zh(m.group(1)) + um[m.group(2)],
+    ))
+
+    # Contextual negatives before CJK/unit suffixes: 温度-10度, 海拔-100米, 变化-3.5个百分点.
+    p.append((
+        re.compile(rf"(?<![A-Za-z0-9])-(\d+(?:\.\d+)?)(?=({range_suffix_re}))"),
+        lambda m: "负" + _number_to_zh(m.group(1)),
+    ))
+
     # 14. Temperature
     p.append((
         re.compile(r"(-?\d+(?:\.\d+)?)[°℃]C?"),
@@ -396,14 +452,6 @@ def _build_patterns():
     ))
 
     # 15. Units: number + ASCII unit
-    _unit_map = {
-        "kg": "千克", "g": "克", "mg": "毫克",
-        "km": "千米", "m": "米", "cm": "厘米", "mm": "毫米",
-        "L": "升", "ml": "毫升", "mL": "毫升",
-        "GHz": "吉赫兹", "MHz": "兆赫兹", "kHz": "千赫兹", "Hz": "赫兹",
-        "kW": "千瓦", "W": "瓦", "V": "伏", "A": "安",
-    }
-    unit_re = "|".join(re.escape(u) for u in sorted(_unit_map, key=len, reverse=True))
     p.append((
         re.compile(rf"(\d+(?:\.\d+)?)({unit_re})\b"),
         lambda m, um=_unit_map: (
@@ -412,49 +460,57 @@ def _build_patterns():
         ),
     ))
 
-    # 16. Landline phone
+    # 16. Phone with explicit context
+    p.append((
+        re.compile(r"(?:手机号|联系电话|电话)[:：]?\s*(1[3-9]\d)-?(\d{4})-?(\d{4})"),
+        lambda m: m.group(0)[:m.start(1) - m.start(0)] + "".join(
+            _DIGITS[int(c)] for c in m.group(1) + m.group(2) + m.group(3)
+        ),
+    ))
+
+    # 17. Landline phone
     p.append((
         re.compile(r"\b(0\d{2,3})-(\d{7,8})\b"),
         lambda m: "".join(_DIGITS[int(c)] for c in m.group(1) + m.group(2)),
     ))
 
-    # 17. Mobile phone
+    # 18. Mobile phone
     p.append((
         re.compile(r"\b(1[3-9]\d)-?(\d{4})-?(\d{4})\b"),
         lambda m: "".join(_DIGITS[int(c)] for c in m.group(1) + m.group(2) + m.group(3)),
     ))
 
-    # 18. Subtraction: only spaced non-whitespace expressions read the hyphen.
+    # 19. Subtraction: only spaced non-whitespace expressions read the hyphen.
     p.append((re.compile(r"(?<=\S)\s+-\s+(?=\S)"), lambda m: "减"))
 
-    # 19. No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
+    # 20. No-space hyphenated tokens: hyphen is silent; digits are read as IDs.
     p.append((
         re.compile(r"(?<!-)([^\s-]+(?:-[^\s-]+)+)"),
         lambda m: _silent_hyphen_token_to_zh(m.group(1)),
     ))
 
-    # 19b. 2 before measure words → 两
+    # 20b. 2 before measure words → 两
     _mw = "个只位件杯碗张本台辆条块间套座名人份架棵幅头匹根颗粒把双对群批排栋层所道首篇封面堆捆串"
     p.append((
         re.compile(rf"(?<!\d)2(?=[{_mw}])"),
         lambda m: "两",
     ))
 
-    # 20. Decimal
+    # 21. Decimal
     p.append((
         re.compile(r"-?\d+\.\d+"),
         lambda m: ("负" if m.group(0).startswith("-") else "")
                   + _decimal_to_zh(m.group(0).lstrip("-")),
     ))
 
-    # 21. Plain integer
+    # 22. Plain integer
     p.append((
         re.compile(r"-?\d+"),
         lambda m: ("负" if m.group(0).startswith("-") else "")
                   + _int_to_zh(abs(int(m.group(0)))),
     ))
 
-    # 22. Symbol map
+    # 23. Symbol map
     _sym_map = {
         "+": "加", "×": "乘", "÷": "除以", "=": "等于",
         "≈": "约等于", "≠": "不等于", "≤": "小于等于", "≥": "大于等于",

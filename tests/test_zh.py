@@ -51,6 +51,10 @@ def test_negative(zh):
     assert zh.normalize("温度-10度") == "温度负十度"
 
 
+def test_negative_measure(zh):
+    assert zh.normalize("海拔-100米") == "海拔负一百米"
+
+
 def test_fraction(zh):
     assert zh.normalize("3/4的概率") == "四分之三的概率"
 

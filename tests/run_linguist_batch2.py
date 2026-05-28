@@ -3,8 +3,6 @@ import sys
 sys.path.insert(0, "/home/babysor00/tts-normalizer")
 from tts_normalizer import Normalizer
 
-zh = Normalizer(lang="zh")
-
 cases = [
     # 年份
     ("2026年",          "二零二六年"),
@@ -38,6 +36,9 @@ cases = [
     ("10~20",           "十到二十"),
     ("5-10岁",          "五到十岁"),
     ("100-200元",       "一百到两百元"),
+    ("20-30人",         "二十到三十人"),
+    ("3-5kg",           "三到五千克"),
+    ("1.5-2.5倍",       "一点五到二点五倍"),
     # 比例/比分
     ("3:0",             "三比零"),
     ("1:100",           "一比一百"),
@@ -51,23 +52,29 @@ cases = [
     ("10-3=7",          "十减三等于七"),
 ]
 
-passed = failed = 0
-failures = []
-for inp, expected in cases:
-    got = zh.normalize(inp)
-    if got == expected:
-        passed += 1
-    else:
-        failed += 1
-        failures.append((inp, expected, got))
+def run():
+    zh = Normalizer(lang="zh")
+    passed = failed = 0
+    failures = []
+    for inp, expected in cases:
+        got = zh.normalize(inp)
+        if got == expected:
+            passed += 1
+        else:
+            failed += 1
+            failures.append((inp, expected, got))
 
-print(f"\n{'='*60}")
-print(f"PASSED: {passed}/{passed+failed}")
-print(f"FAILED: {failed}/{passed+failed}")
-if failures:
-    print("\nFailed cases:")
-    for inp, exp, got in failures:
-        print(f"  Input:    {inp!r}")
-        print(f"  Expected: {exp!r}")
-        print(f"  Got:      {got!r}")
-        print()
+    print(f"\n{'='*60}")
+    print(f"PASSED: {passed}/{passed+failed}")
+    print(f"FAILED: {failed}/{passed+failed}")
+    if failures:
+        print("\nFailed cases:")
+        for inp, exp, got in failures:
+            print(f"  Input:    {inp!r}")
+            print(f"  Expected: {exp!r}")
+            print(f"  Got:      {got!r}")
+            print()
+
+
+if __name__ == "__main__":
+    run()

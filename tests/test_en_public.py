@@ -87,8 +87,7 @@ class TestTime:
         assert en.normalize("3:05") == "three oh five"
 
     def test_midnight_hour(self, en):
-        # STYLE: NeMo → "twenty three o'clock", we → "twenty-three o'clock"
-        assert en.normalize("23:00") == "twenty-three o'clock"
+        assert en.normalize("23:00") == "twenty three o'clock"
 
 
 # ---------------------------------------------------------------------------
@@ -369,10 +368,10 @@ class TestFractionsExtended:
 # ---------------------------------------------------------------------------
 class TestDates:
     def test_text_format(self, en):
-        assert en.normalize("January 5, 2026") == "January fifth, twenty twenty-six"
+        assert en.normalize("January 5, 2026") == "January fifth, twenty twenty six"
 
     def test_text_format_1999(self, en):
-        assert en.normalize("March 15, 1999") == "March fifteenth, nineteen ninety-nine"
+        assert en.normalize("March 15, 1999") == "March fifteenth, nineteen ninety nine"
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +379,7 @@ class TestDates:
 # ---------------------------------------------------------------------------
 class TestAbbreviations:
     def test_number(self, en):
-        assert en.normalize("No. 42") == "Number forty-two"
+        assert en.normalize("No. 42") == "Number forty two"
 
     def test_doctor(self, en):
         assert en.normalize("Dr. Smith") == "Doctor Smith"

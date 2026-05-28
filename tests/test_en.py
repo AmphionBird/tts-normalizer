@@ -30,7 +30,7 @@ def test_currency(en):
 
 
 def test_date(en):
-    assert en.normalize("Date: 2026-04-13") == "Date: April thirteenth, twenty twenty-six"
+    assert en.normalize("Date: 2026-04-13") == "Date: April thirteenth, twenty twenty six"
 
 
 def test_time(en):

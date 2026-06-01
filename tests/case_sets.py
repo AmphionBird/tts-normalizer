@@ -62,6 +62,7 @@ EN_DIGIT_SCENARIO_CASES = (
     NormalizationCase("en", "digit_scenarios", "pin_leading_zero", "PIN 0429", "PIN zero four two nine"),
     NormalizationCase("en", "digit_scenarios", "room_leading_zero", "Room 007", "Room zero zero seven"),
     NormalizationCase("en", "digit_scenarios", "order_number_large", "Order number 1000000", "Order number one zero zero zero zero zero zero"),
+    NormalizationCase("en", "digit_scenarios", "bare_long_digits", "Reference 13848396758", "Reference one three eight four eight three nine six seven five eight"),
 )
 
 ZH_DIGIT_SCENARIO_CASES = (
@@ -70,6 +71,7 @@ ZH_DIGIT_SCENARIO_CASES = (
     NormalizationCase("zh", "digit_scenarios", "order_number_large", "订单号1000000", "订单号一零零零零零零"),
     NormalizationCase("zh", "digit_scenarios", "mobile_context", "手机号13800138000", "手机号一三八零零一三八零零零"),
     NormalizationCase("zh", "digit_scenarios", "mobile_hyphenated_context", "联系电话：138-0013-8000", "联系电话：一三八零零一三八零零零"),
+    NormalizationCase("zh", "digit_scenarios", "bare_long_digits", "参考号13848396758", "参考号一三八四八三九六七五八"),
 )
 
 

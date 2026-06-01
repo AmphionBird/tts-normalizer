@@ -33,7 +33,7 @@ class TestCardinals:
         assert en.normalize("-2") == "negative two"
 
     def test_large(self, en):
-        assert en.normalize("1000000") == "one million"
+        assert en.normalize("1000000") == "one zero zero zero zero zero zero"
 
     def test_compound(self, en):
         # STYLE: NeMo → "one hundred and twenty three", we → "one hundred twenty-three"

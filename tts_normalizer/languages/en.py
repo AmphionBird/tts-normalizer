@@ -238,9 +238,6 @@ def _fraction_en(num: int, den: int) -> str:
 def _build_patterns():
     p = []
 
-    # ── Comma removal ────────────────────────────────────────────────────────
-    p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
-
     # ── IP addresses ─────────────────────────────────────────────────────────
     p.append((
         re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"),
@@ -624,6 +621,20 @@ def _build_patterns():
                   + _int_to_en(abs(int(m.group(0).split(".")[0])))
                   + " point "
                   + " ".join(_ONES[int(c)] or "zero" for c in m.group(0).split(".")[1]),
+    ))
+
+    # ── Comma-grouped cardinals ──────────────────────────────────────────────
+    p.append((
+        re.compile(r"\b\d{1,3}(?:,\d{3})+\b"),
+        lambda m: _int_to_en(int(m.group(0).replace(",", ""))),
+    ))
+
+    # ── Long bare digit strings ──────────────────────────────────────────────
+    # Unformatted long digit runs are usually identifiers, accounts, or phone-like
+    # strings in TTS input; formatted numbers keep cardinal reading above.
+    p.append((
+        re.compile(r"\b\d{5,}\b"),
+        lambda m: _digits_en(m.group(0)),
     ))
 
     # ── Short decade: '80s → eighties ────────────────────────────────────────

@@ -156,9 +156,6 @@ def _sci_to_zh(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
 def _build_patterns():
     p = []
 
-    # PRE-0. Thousands-separator comma removal (12,345 → 12345)
-    p.append((re.compile(r"(?<=\d),(?=\d{3})"), lambda m: ""))
-
     # 0a. IP address (before version-number pattern)
     p.append((
         re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"),
@@ -313,22 +310,22 @@ def _build_patterns():
 
     # 9. CNY with decimal: ¥N.D → 元/角/分  (truncates to 2 decimal places)
     p.append((
-        re.compile(r"-[¥￥](\d+)\.(\d+)"),
-        lambda m: "负" + _cny_to_zh(m.group(1), m.group(2)),
+        re.compile(r"-[¥￥](\d[\d,]*)\.(\d+)"),
+        lambda m: "负" + _cny_to_zh(m.group(1).replace(",", ""), m.group(2)),
     ))
     p.append((
-        re.compile(r"[¥￥](\d+)\.(\d+)"),
-        lambda m: _cny_to_zh(m.group(1), m.group(2)),
+        re.compile(r"[¥￥](\d[\d,]*)\.(\d+)"),
+        lambda m: _cny_to_zh(m.group(1).replace(",", ""), m.group(2)),
     ))
 
     # 10. CNY integer
     p.append((
-        re.compile(r"-[¥￥](\d+)"),
-        lambda m: "负" + _int_to_zh(int(m.group(1))) + "元",
+        re.compile(r"-[¥￥](\d[\d,]*)"),
+        lambda m: "负" + _int_to_zh(int(m.group(1).replace(",", ""))) + "元",
     ))
     p.append((
-        re.compile(r"[¥￥](\d+)"),
-        lambda m: _int_to_zh(int(m.group(1))) + "元",
+        re.compile(r"[¥￥](\d[\d,]*)"),
+        lambda m: _int_to_zh(int(m.group(1).replace(",", ""))) + "元",
     ))
 
     # 11. Other currencies (negative variants first)
@@ -404,7 +401,7 @@ def _build_patterns():
             [
                 *list(_unit_map),
                 "摄氏度", "华氏度", "个百分点", "百分点", "人民币", "块钱",
-                "美元", "欧元", "英镑", "韩元", "公里", "千米", "厘米", "毫米",
+                "美元", "欧元", "英镑", "韩元", "公里", "千米", "厘米", "毫米", "米",
                 "公斤", "千克", "毫克", "小时", "分钟", "个月", "元", "块",
                 "岁", "年", "月", "日", "天", "人", "名", "个", "页", "次",
                 "倍", "分", "秒", "度", "℃", "°C",
@@ -503,14 +500,33 @@ def _build_patterns():
                   + _decimal_to_zh(m.group(0).lstrip("-")),
     ))
 
-    # 22. Plain integer
+    # 22. Comma-grouped cardinals keep regular number reading.
+    p.append((
+        re.compile(r"(?<!\d)\d{1,3}(?:,\d{3})+(?!\d)"),
+        lambda m: _int_to_zh(int(m.group(0).replace(",", ""))),
+    ))
+
+    # 23. Long numbers with CJK units/measure words keep regular number reading.
+    long_number_suffix_re = "|".join([range_suffix_re, rf"[{_mw}]", "吨"])
+    p.append((
+        re.compile(rf"(?<!\d)(\d{{5,}})(?=(?:{long_number_suffix_re}))"),
+        lambda m: _int_to_zh(int(m.group(1))),
+    ))
+
+    # 24. Long bare digit strings
+    p.append((
+        re.compile(r"(?<!\d)\d{5,}(?!\d)"),
+        lambda m: _digits_to_zh(m.group(0)),
+    ))
+
+    # 25. Plain integer
     p.append((
         re.compile(r"-?\d+"),
         lambda m: ("负" if m.group(0).startswith("-") else "")
                   + _int_to_zh(abs(int(m.group(0)))),
     ))
 
-    # 23. Symbol map
+    # 26. Symbol map
     _sym_map = {
         "+": "加", "×": "乘", "÷": "除以", "=": "等于",
         "≈": "约等于", "≠": "不等于", "≤": "小于等于", "≥": "大于等于",

@@ -48,8 +48,8 @@ cases_en = [
     ("21",          "twenty-one"),
     ("100",         "one hundred"),
     ("1000",        "one thousand"),
-    ("1000000",     "one million"),
-    ("1234567",     "one million two hundred thirty-four thousand five hundred sixty-seven"),
+    ("1000000",     "one zero zero zero zero zero zero"),
+    ("1234567",     "one two three four five six seven"),
     # 小数
     ("3.14",        "three point one four"),
     ("0.5",         "zero point five"),

@@ -65,3 +65,7 @@ def test_unit_kg(zh):
 
 def test_year_standalone(zh):
     assert zh.normalize("2026年") == "二零二六年"
+
+
+def test_pinyin_tone_tokens_are_preserved(zh):
+    assert zh.normalize("脏读作zang4，藏读作CANG2，再读作zai3") == "脏读作zang4，藏读作CANG2，再读作zai3"

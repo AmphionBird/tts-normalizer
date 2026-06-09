@@ -557,6 +557,16 @@ _ENTITY_RE = re.compile(
     r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-zA-Z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-zA-Z]?)(?![A-Z\d])"  # brand codes: USB3.0, A380, GPT-4, GPT-4o
 )
 
+_PINYIN_TONE_RE = re.compile(
+    r"(?<![a-zA-Z])"
+    r"(?:(?:[bpmfdtnlgkhjqxzcsryw]|[zcs]h)?"
+    r"(?:[aeiouüv]|[ae]i|u[aio]|ao|ou|i[aue]|[uüv]e|[uvü]ang?|uai|[aeiuv]n|[aeio]ng|ia[no]|i[ao]ng)"
+    r"|ng|er)"
+    r"[1-5]"
+    r"(?![a-zA-Z0-9])",
+    re.IGNORECASE,
+)
+
 # Use CJK Unified Ideographs offset as slot index (no digits → won't be re-converted)
 _SLOT_BASE = 0x4E00
 
@@ -572,6 +582,13 @@ def _make_slot(i: int) -> str:
 
 
 _SLOT_RE = re.compile(r"\x00S([\u4e00-\u9fff])E\x00")
+
+
+def _make_pinyin_slot(i: int) -> str:
+    return "\x00P" + chr(_SLOT_BASE + i) + "E\x00"
+
+
+_PINYIN_SLOT_RE = re.compile(r"\x00P([\u4e00-\u9fff])E\x00")
 
 
 class ZhNormalizer(BaseNormalizer):
@@ -597,10 +614,19 @@ class ZhNormalizer(BaseNormalizer):
 
     def _apply_patterns(self, text: str) -> str:
         slots: list[str] = []
+        pinyin_slots: list[str] = []
 
         def _protect(m: re.Match) -> str:
             slots.append(m.group(0))
             return _make_slot(len(slots) - 1)
+
+        def _protect_pinyin(m: re.Match) -> str:
+            pinyin_slots.append(m.group(0))
+            return _make_pinyin_slot(len(pinyin_slots) - 1)
+
+        # Pinyin tone tokens are valid BPE tokens and must survive both the main
+        # normalization pipeline and the final digit cleanup.
+        text = _PINYIN_TONE_RE.sub(_protect_pinyin, text)
 
         # Optional user allowlist (verbatim preservation)
         if self._allowlist_re:
@@ -626,5 +652,7 @@ class ZhNormalizer(BaseNormalizer):
         # Final cleanup: convert any digits that survived inside restored entities
         text = _CLEANUP_DECIMAL.sub(lambda m: _decimal_to_zh(m.group(0)), text)
         text = _CLEANUP_INT.sub(lambda m: _int_to_zh(int(m.group(0))), text)
+
+        text = _PINYIN_SLOT_RE.sub(lambda m: pinyin_slots[ord(m.group(1)) - _SLOT_BASE], text)
 
         return text

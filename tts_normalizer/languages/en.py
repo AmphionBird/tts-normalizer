@@ -235,6 +235,170 @@ def _fraction_en(num: int, den: int) -> str:
     return _int_to_en(num) + " " + den_word
 
 
+def _is_one_quantity(s: str) -> bool:
+    try:
+        return float(s) == 1
+    except ValueError:
+        return False
+
+
+_RATE_UNIT_FORMS = {
+    # weight
+    "kg": ("kilogram", "kilograms"),
+    "g": ("gram", "grams"),
+    "mg": ("milligram", "milligrams"),
+    "lb": ("pound", "pounds"),
+    "lbs": ("pound", "pounds"),
+    "oz": ("ounce", "ounces"),
+    # length / distance
+    "km": ("kilometer", "kilometers"),
+    "m": ("meter", "meters"),
+    "cm": ("centimeter", "centimeters"),
+    "mm": ("millimeter", "millimeters"),
+    "mi": ("mile", "miles"),
+    "ft": ("foot", "feet"),
+    "yd": ("yard", "yards"),
+    "in": ("inch", "inches"),
+    # volume
+    "L": ("liter", "liters"),
+    "l": ("liter", "liters"),
+    "mL": ("milliliter", "milliliters"),
+    "ml": ("milliliter", "milliliters"),
+    "dL": ("deciliter", "deciliters"),
+    "dl": ("deciliter", "deciliters"),
+    # power / energy
+    "GW": ("gigawatt", "gigawatts"),
+    "MW": ("megawatt", "megawatts"),
+    "kW": ("kilowatt", "kilowatts"),
+    "W": ("watt", "watts"),
+    "kWh": ("kilowatt-hour", "kilowatt-hours"),
+    "Wh": ("watt-hour", "watt-hours"),
+    # data
+    "TB": ("terabyte", "terabytes"),
+    "GB": ("gigabyte", "gigabytes"),
+    "MB": ("megabyte", "megabytes"),
+    "KB": ("kilobyte", "kilobytes"),
+    "kB": ("kilobyte", "kilobytes"),
+    "Tb": ("terabit", "terabits"),
+    "Gb": ("gigabit", "gigabits"),
+    "Mb": ("megabit", "megabits"),
+    "Kb": ("kilobit", "kilobits"),
+    "tb": ("terabit", "terabits"),
+    "gb": ("gigabit", "gigabits"),
+    "mb": ("megabit", "megabits"),
+    "kb": ("kilobit", "kilobits"),
+    "b": ("bit", "bits"),
+    # time / frequency / pressure
+    "ms": ("millisecond", "milliseconds"),
+    "us": ("microsecond", "microseconds"),
+    "μs": ("microsecond", "microseconds"),
+    "ns": ("nanosecond", "nanoseconds"),
+    "Hz": ("hertz", "hertz"),
+    "kHz": ("kilohertz", "kilohertz"),
+    "MHz": ("megahertz", "megahertz"),
+    "GHz": ("gigahertz", "gigahertz"),
+    "Pa": ("pascal", "pascals"),
+    "kPa": ("kilopascal", "kilopascals"),
+    "MPa": ("megapascal", "megapascals"),
+    # common count nouns in rate notation
+    "beat": ("beat", "beats"),
+    "beats": ("beat", "beats"),
+    "breath": ("breath", "breaths"),
+    "breaths": ("breath", "breaths"),
+    "frame": ("frame", "frames"),
+    "frames": ("frame", "frames"),
+    "word": ("word", "words"),
+    "words": ("word", "words"),
+    "request": ("request", "requests"),
+    "requests": ("request", "requests"),
+    "r": ("revolution", "revolutions"),
+}
+
+_RATE_DENOMINATOR_FORMS = {
+    **_RATE_UNIT_FORMS,
+    "h": ("hour", "hours"),
+    "hr": ("hour", "hours"),
+    "hrs": ("hour", "hours"),
+    "hour": ("hour", "hours"),
+    "hours": ("hour", "hours"),
+    "s": ("second", "seconds"),
+    "sec": ("second", "seconds"),
+    "secs": ("second", "seconds"),
+    "second": ("second", "seconds"),
+    "seconds": ("second", "seconds"),
+    "min": ("minute", "minutes"),
+    "mins": ("minute", "minutes"),
+    "minute": ("minute", "minutes"),
+    "minutes": ("minute", "minutes"),
+    "d": ("day", "days"),
+    "day": ("day", "days"),
+    "days": ("day", "days"),
+    "wk": ("week", "weeks"),
+    "wks": ("week", "weeks"),
+    "week": ("week", "weeks"),
+    "weeks": ("week", "weeks"),
+    "mo": ("month", "months"),
+    "month": ("month", "months"),
+    "months": ("month", "months"),
+    "yr": ("year", "years"),
+    "yrs": ("year", "years"),
+    "year": ("year", "years"),
+    "years": ("year", "years"),
+    "person": ("person", "people"),
+    "people": ("person", "people"),
+    "unit": ("unit", "units"),
+    "units": ("unit", "units"),
+    "piece": ("piece", "pieces"),
+    "pieces": ("piece", "pieces"),
+    "serving": ("serving", "servings"),
+    "servings": ("serving", "servings"),
+    "seat": ("seat", "seats"),
+    "seats": ("seat", "seats"),
+}
+
+_RATE_UNIT_RE = "|".join(re.escape(u) for u in sorted(_RATE_UNIT_FORMS, key=len, reverse=True))
+_RATE_DENOMINATOR_RE = "|".join(
+    re.escape(u) for u in sorted(_RATE_DENOMINATOR_FORMS, key=len, reverse=True)
+)
+
+
+def _lookup_rate_unit(token: str, forms: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    if token in forms:
+        return forms[token]
+    return forms[token.lower()]
+
+
+def _quantity_unit_phrase(value: str, unit: str) -> str:
+    singular, plural = _lookup_rate_unit(unit, _RATE_UNIT_FORMS)
+    return _read_number(value) + " " + (singular if _is_one_quantity(value) else plural)
+
+
+def _denominator_unit_phrase(token: str, count: str | None = None, power: str | None = None) -> str:
+    singular, plural = _lookup_rate_unit(token, _RATE_DENOMINATOR_FORMS)
+    if power in ("2", "^2", "²"):
+        unit = singular + " squared" if singular in {"second", "minute", "hour"} else "square " + singular
+    elif power in ("3", "^3", "³"):
+        unit = singular + " cubed" if singular in {"second", "minute", "hour"} else "cubic " + singular
+    elif count is not None:
+        unit = singular if _is_one_quantity(count) else plural
+    else:
+        unit = singular
+
+    return (_read_number(count) + " " if count is not None else "") + unit
+
+
+def _slash_unit_rate_phrase(value: str, unit: str, denominator: str) -> str:
+    denominator_parts = []
+    for part in re.split(r"\s*/\s*", denominator):
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)?\s*([A-Za-zμ]+)(\^?[23]|[²³])?", part)
+        if not m:
+            denominator_parts.append(part)
+            continue
+        denominator_parts.append(_denominator_unit_phrase(m.group(2), m.group(1), m.group(3)))
+
+    return _quantity_unit_phrase(value, unit) + " per " + " per ".join(denominator_parts)
+
+
 def _build_patterns():
     p = []
 
@@ -452,10 +616,43 @@ def _build_patterns():
         ),
     ))
 
-    # ── Speed ────────────────────────────────────────────────────────────────
+    # ── Slash rates / compound units ─────────────────────────────────────────
     p.append((
-        re.compile(r"(\d+(?:\.\d+)?)km/h"),
-        lambda m: _read_number(m.group(1)) + " kilometers per hour",
+        re.compile(
+            rf"(\d+(?:\.\d+)?)\s*({_RATE_UNIT_RE})\s*/\s*"
+            rf"((?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DENOMINATOR_RE})(?:\^?[23]|[²³])?"
+            rf"(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DENOMINATOR_RE})(?:\^?[23]|[²³])?)*)"
+        ),
+        lambda m: _slash_unit_rate_phrase(m.group(1), m.group(2), m.group(3)),
+    ))
+
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s*/\s*((?:{_RATE_DENOMINATOR_RE}))\b"),
+        lambda m: _read_number(m.group(1)) + " " + m.group(2)
+                  + " per " + _denominator_unit_phrase(m.group(3)),
+    ))
+
+    # ── Implied per-unit abbreviations ───────────────────────────────────────
+    _implied_rate_map = {
+        "mph": "miles per hour",
+        "kph": "kilometers per hour",
+        "mpg": "miles per gallon",
+        "rpm": "revolutions per minute",
+        "bpm": "beats per minute",
+        "wpm": "words per minute",
+        "fps": "frames per second",
+        "dpi": "dots per inch",
+        "ppm": "parts per million",
+        "kbps": "kilobits per second",
+        "Kbps": "kilobits per second",
+        "Mbps": "megabits per second",
+        "Gbps": "gigabits per second",
+        "Tbps": "terabits per second",
+    }
+    implied_rate_re = "|".join(re.escape(u) for u in sorted(_implied_rate_map, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s?({implied_rate_re})\b"),
+        lambda m, irm=_implied_rate_map: _read_number(m.group(1)) + " " + irm[m.group(2)],
     ))
 
     # ── Units ────────────────────────────────────────────────────────────────
@@ -470,7 +667,7 @@ def _build_patterns():
         "L": "liters", "ml": "milliliters", "mL": "milliliters",
         # power
         "GW": "gigawatts", "MW": "megawatts", "kW": "kilowatts", "W": "watts",
-        # speed (km/h handled separately above)
+        # speed / rates handled separately above
         "mph": "miles per hour",
         # frequency
         "GHz": "gigahertz", "MHz": "megahertz", "kHz": "kilohertz", "Hz": "hertz",
@@ -494,6 +691,9 @@ def _build_patterns():
         re.compile(rf"(\d+(?:\.\d+)?)\s?({unit_re_en})\b"),
         lambda m, um=_unit_map_en: _read_number(m.group(1)) + " " + um[m.group(2)],
     ))
+
+    # ── Idiomatic slash expressions that are not mathematical fractions ─────
+    p.append((re.compile(r"\b24/7\b"), lambda m: "twenty-four seven"))
 
     # ── Fractions (before ordinals to avoid suffix conflict) ─────────────────
     # Mixed number fractions: 2 1/2 → two and a half, 3 2/4 → three and two quarters
@@ -524,24 +724,17 @@ def _build_patterns():
         lambda m: _read_number(m.group(1)) + " percent",
     ))
 
-    # ── Currency: per-period before plain amounts ────────────────────────────
-    _per_map = {
-        "mo": "per month", "yr": "per year", "wk": "per week",
-        "d": "per day", "hr": "per hour", "min": "per minute",
-    }
-    _per_re = "|".join(_per_map.keys())
-
-    # $N/period and £N/period
+    # ── Currency: per-unit before plain amounts ──────────────────────────────
     p.append((
-        re.compile(rf"\$([\d.]+)\/({_per_re})\b"),
-        lambda m, pm=_per_map: _usd_str(m.group(1)) + " " + pm[m.group(2)],
+        re.compile(rf"\$([\d.]+)\/((?:{_RATE_DENOMINATOR_RE}))\b"),
+        lambda m: _usd_str(m.group(1)) + " per " + _denominator_unit_phrase(m.group(2)),
     ))
     p.append((
-        re.compile(rf"£([\d.]+)\/({_per_re})\b"),
-        lambda m, pm=_per_map: (
+        re.compile(rf"£([\d.]+)\/((?:{_RATE_DENOMINATOR_RE}))\b"),
+        lambda m: (
             _read_number(m.group(1))
             + " pound" + ("s" if float(m.group(1)) != 1 else "")
-            + " " + pm[m.group(2)]
+            + " per " + _denominator_unit_phrase(m.group(2))
         ),
     ))
 

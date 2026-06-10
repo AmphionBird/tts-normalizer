@@ -59,8 +59,36 @@ def test_fraction(zh):
     assert zh.normalize("3/4的概率") == "四分之三的概率"
 
 
+def test_twenty_four_seven_not_fraction(zh):
+    assert zh.normalize("24/7服务") == "二十四小时七天服务"
+
+
 def test_unit_kg(zh):
     assert zh.normalize("重量50kg") == "重量五十千克"
+
+
+def test_km_per_hour_spelled_denominator(zh):
+    assert zh.normalize("限速100km/hour") == "限速每小时一百千米"
+
+
+def test_km_per_hour_with_spaces(zh):
+    assert zh.normalize("限速100 km / h") == "限速每小时一百千米"
+
+
+def test_metric_acceleration(zh):
+    assert zh.normalize("重力9.8 m/s²") == "重力每平方秒九点八米"
+
+
+def test_fuel_consumption(zh):
+    assert zh.normalize("油耗5 L/100km") == "油耗每一百千米五升"
+
+
+def test_medical_concentration(zh):
+    assert zh.normalize("血糖90 mg/dL") == "血糖每分升九十毫克"
+
+
+def test_usd_per_weight(zh):
+    assert zh.normalize("价格$5/kg") == "价格每千克五美元"
 
 
 def test_year_standalone(zh):
@@ -69,3 +97,11 @@ def test_year_standalone(zh):
 
 def test_pinyin_tone_tokens_are_preserved(zh):
     assert zh.normalize("脏读作zang4，藏读作CANG2，再读作zai3") == "脏读作zang4，藏读作CANG2，再读作zai3"
+
+
+def test_non_pinyin_letter_digit_tokens_are_not_preserved(zh):
+    assert zh.normalize("A4纸，v2.3.1正式发布") == "A四纸，v二点三点一正式发布"
+
+
+def test_pinyin_tone_digit_must_be_one_to_five(zh):
+    assert zh.normalize("zang6不是拼音声调token") == "zang六不是拼音声调token"

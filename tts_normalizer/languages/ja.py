@@ -110,6 +110,71 @@ def _sci_to_ja(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
         return _int_to_ja(val)
 
 
+_RATE_UNIT_JA = {
+    "kg": "キログラム", "g": "グラム", "mg": "ミリグラム",
+    "km": "キロメートル", "m": "メートル", "cm": "センチメートル", "mm": "ミリメートル",
+    "L": "リットル", "l": "リットル", "ml": "ミリリットル", "mL": "ミリリットル",
+    "dL": "デシリットル", "dl": "デシリットル",
+    "kWh": "キロワット時", "Wh": "ワット時", "kW": "キロワット", "W": "ワット",
+    "TB": "テラバイト", "GB": "ギガバイト", "MB": "メガバイト", "KB": "キロバイト",
+    "Tb": "テラビット", "Gb": "ギガビット", "Mb": "メガビット", "Kb": "キロビット",
+    "tb": "テラビット", "gb": "ギガビット", "mb": "メガビット", "kb": "キロビット", "b": "ビット",
+    "Hz": "ヘルツ", "kHz": "キロヘルツ", "MHz": "メガヘルツ", "GHz": "ギガヘルツ",
+    "Pa": "パスカル", "kPa": "キロパスカル", "MPa": "メガパスカル",
+    "beat": "拍", "beats": "拍", "breath": "呼吸", "breaths": "呼吸",
+    "frame": "フレーム", "frames": "フレーム", "word": "語", "words": "語",
+    "request": "リクエスト", "requests": "リクエスト", "r": "回転",
+}
+
+_RATE_DEN_JA = {
+    **_RATE_UNIT_JA,
+    "h": "時間", "hr": "時間", "hrs": "時間", "hour": "時間", "hours": "時間",
+    "s": "秒", "sec": "秒", "secs": "秒", "second": "秒", "seconds": "秒",
+    "min": "分", "mins": "分", "minute": "分", "minutes": "分",
+    "d": "日", "day": "日", "days": "日",
+    "wk": "週", "wks": "週", "week": "週", "weeks": "週",
+    "mo": "月", "month": "月", "months": "月",
+    "yr": "年", "yrs": "年", "year": "年", "years": "年",
+    "person": "人", "people": "人", "unit": "単位", "units": "単位",
+    "piece": "個", "pieces": "個", "serving": "食", "servings": "食",
+    "seat": "席", "seats": "席",
+}
+
+_RATE_UNIT_RE_JA = "|".join(re.escape(u) for u in sorted(_RATE_UNIT_JA, key=len, reverse=True))
+_RATE_DEN_RE_JA = "|".join(re.escape(u) for u in sorted(_RATE_DEN_JA, key=len, reverse=True))
+_RATE_HOUR_DEN_JA = {"h", "hr", "hrs", "hour", "hours"}
+
+
+def _rate_number_to_ja(s: str) -> str:
+    return _decimal_to_ja(s) if "." in s else _int_to_ja(int(s))
+
+
+def _rate_den_part_ja(token: str, count: str | None = None, power: str | None = None) -> str:
+    unit = _RATE_DEN_JA.get(token, _RATE_DEN_JA[token.lower()])
+    if power in ("2", "^2", "²"):
+        unit += "の二乗"
+    elif power in ("3", "^3", "³"):
+        unit += "の三乗"
+    return (_rate_number_to_ja(count) if count is not None else "一") + unit
+
+
+def _slash_rate_ja(value: str, unit: str, denominator: str) -> str:
+    den_match = re.fullmatch(r"([A-Za-z]+)", denominator.strip())
+    if unit == "km" and den_match and den_match.group(1) in _RATE_HOUR_DEN_JA:
+        return "時速" + _rate_number_to_ja(value) + "キロメートル"
+
+    value_phrase = _rate_number_to_ja(value) + _RATE_UNIT_JA.get(unit, _RATE_UNIT_JA[unit.lower()])
+    den_parts = []
+    for part in re.split(r"\s*/\s*", denominator):
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)?\s*([A-Za-zμ]+)(\^?[23]|[²³])?", part)
+        if not m:
+            den_parts.append(part)
+            continue
+        den_parts.append(_rate_den_part_ja(m.group(2), m.group(1), m.group(3)))
+
+    return "あたり".join(den_parts) + "あたり" + value_phrase
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -167,7 +232,19 @@ def _build_patterns():
         lambda m: "第" + _int_to_ja(int(m.group(1))),
     ))
 
-    # 1e. Fractions (1/2 → 二分の一)
+    # 1e. Date with slashes must precede generic fractions.
+    p.append((
+        re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})"),
+        lambda m: (
+            _year_to_ja(m.group(1)) + "年"
+            + _int_to_ja(int(m.group(2))) + "月"
+            + _int_to_ja(int(m.group(3))) + "日"
+        ),
+    ))
+
+    p.append((re.compile(r"(?<!\d)24/7(?!\d)"), lambda m: "二十四時間年中無休"))
+
+    # 1f. Fractions (1/2 → 二分の一)
     p.append((
         re.compile(r"\b(\d+)/(\d+)\b"),
         lambda m: _int_to_ja(int(m.group(2))) + "分の" + _int_to_ja(int(m.group(1))),
@@ -216,12 +293,26 @@ def _build_patterns():
         lambda m: _int_to_ja(int(m.group(1))) + "対" + _int_to_ja(int(m.group(2))),
     ))
 
-    # 6. Speed: Nkm/h → 時速Nキロメートル
+    # 6. Slash rates / compound units: Nkm/hour, N mg/dL, N MB/s, etc.
     p.append((
-        re.compile(r"(\d+(?:\.\d+)?)km/h"),
-        lambda m: "時速" + (
-            _decimal_to_ja(m.group(1)) if "." in m.group(1) else _int_to_ja(int(m.group(1)))
-        ) + "キロメートル",
+        re.compile(
+            rf"(\d+(?:\.\d+)?)\s*({_RATE_UNIT_RE_JA})\s*/\s*"
+            rf"((?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_JA})(?:\^?[23]|[²³])?"
+            rf"(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_JA})(?:\^?[23]|[²³])?)*)"
+        ),
+        lambda m: _slash_rate_ja(m.group(1), m.group(2), m.group(3)),
+    ))
+
+    _implied_rate_ja = {
+        "mph": ("時間", "マイル"), "kph": ("時間", "キロメートル"), "rpm": ("分", "回転"),
+        "bpm": ("分", "拍"), "fps": ("秒", "フレーム"), "dpi": ("インチ", "ドット"),
+        "ppm": ("百万", "部"), "kbps": ("秒", "キロビット"), "Kbps": ("秒", "キロビット"),
+        "Mbps": ("秒", "メガビット"), "Gbps": ("秒", "ギガビット"), "Tbps": ("秒", "テラビット"),
+    }
+    implied_rate_re_ja = "|".join(re.escape(u) for u in sorted(_implied_rate_ja, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s?({implied_rate_re_ja})\b"),
+        lambda m, irm=_implied_rate_ja: "一" + irm[m.group(2)][0] + "あたり" + _rate_number_to_ja(m.group(1)) + irm[m.group(2)][1],
     ))
 
     # 7. Percentage
@@ -230,6 +321,13 @@ def _build_patterns():
         lambda m: (
             _decimal_to_ja(m.group(1)) if "." in m.group(1) else _int_to_ja(int(m.group(1)))
         ) + "パーセント",
+    ))
+
+    # 7a. Currency per unit before plain currency amounts.
+    _currency_unit_ja = {"$": "ドル", "€": "ユーロ", "£": "ポンド", "¥": "円", "￥": "円"}
+    p.append((
+        re.compile(rf"([$€£¥￥])(\d+(?:\.\d+)?)\s*/\s*((?:{_RATE_DEN_RE_JA}))"),
+        lambda m, cm=_currency_unit_ja: _rate_den_part_ja(m.group(3)) + "あたり" + _rate_number_to_ja(m.group(2)) + cm[m.group(1)],
     ))
 
     # 7b. Negative currency: -¥N → マイナスN円

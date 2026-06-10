@@ -149,6 +149,66 @@ def _sci_to_zh(base_str: str, exp_str: str, neg_exp: bool = False) -> str:
         return _int_to_zh(val)
 
 
+_RATE_UNIT_ZH = {
+    "kg": "千克", "g": "克", "mg": "毫克",
+    "km": "千米", "m": "米", "cm": "厘米", "mm": "毫米",
+    "L": "升", "l": "升", "ml": "毫升", "mL": "毫升", "dL": "分升", "dl": "分升",
+    "kWh": "千瓦时", "Wh": "瓦时", "kW": "千瓦", "W": "瓦",
+    "TB": "太字节", "GB": "吉字节", "MB": "兆字节", "KB": "千字节",
+    "Tb": "太比特", "Gb": "吉比特", "Mb": "兆比特", "Kb": "千比特",
+    "tb": "太比特", "gb": "吉比特", "mb": "兆比特", "kb": "千比特", "b": "比特",
+    "Hz": "赫兹", "kHz": "千赫兹", "MHz": "兆赫兹", "GHz": "吉赫兹",
+    "Pa": "帕", "kPa": "千帕", "MPa": "兆帕",
+    "beat": "次", "beats": "次", "breath": "次", "breaths": "次",
+    "frame": "帧", "frames": "帧", "word": "词", "words": "词",
+    "request": "请求", "requests": "请求", "r": "转",
+}
+
+_RATE_DEN_ZH = {
+    **_RATE_UNIT_ZH,
+    "h": "小时", "hr": "小时", "hrs": "小时", "hour": "小时", "hours": "小时",
+    "s": "秒", "sec": "秒", "secs": "秒", "second": "秒", "seconds": "秒",
+    "min": "分钟", "mins": "分钟", "minute": "分钟", "minutes": "分钟",
+    "d": "天", "day": "天", "days": "天",
+    "wk": "周", "wks": "周", "week": "周", "weeks": "周",
+    "mo": "月", "month": "月", "months": "月",
+    "yr": "年", "yrs": "年", "year": "年", "years": "年",
+    "person": "人", "people": "人", "unit": "单位", "units": "单位",
+    "piece": "件", "pieces": "件", "serving": "份", "servings": "份",
+    "seat": "座", "seats": "座",
+}
+
+_RATE_UNIT_RE_ZH = "|".join(re.escape(u) for u in sorted(_RATE_UNIT_ZH, key=len, reverse=True))
+_RATE_DEN_RE_ZH = "|".join(re.escape(u) for u in sorted(_RATE_DEN_ZH, key=len, reverse=True))
+_RATE_TIME_DEN_ZH = {"h", "hr", "hrs", "hour", "hours"}
+
+
+def _rate_number_to_zh(s: str) -> str:
+    return _decimal_to_zh(s) if "." in s else _int_to_zh(int(s))
+
+
+def _rate_den_part_zh(token: str, count: str | None = None, power: str | None = None) -> str:
+    unit = _RATE_DEN_ZH.get(token, _RATE_DEN_ZH[token.lower()])
+    if power in ("2", "^2", "²"):
+        unit = "平方" + unit
+    elif power in ("3", "^3", "³"):
+        unit = "立方" + unit
+    return (_rate_number_to_zh(count) if count is not None else "") + unit
+
+
+def _slash_rate_zh(value: str, unit: str, denominator: str) -> str:
+    value_phrase = _rate_number_to_zh(value) + _RATE_UNIT_ZH.get(unit, _RATE_UNIT_ZH[unit.lower()])
+    den_parts = []
+    for part in re.split(r"\s*/\s*", denominator):
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)?\s*([A-Za-zμ]+)(\^?[23]|[²³])?", part)
+        if not m:
+            den_parts.append(part)
+            continue
+        den_parts.append(_rate_den_part_zh(m.group(2), m.group(1), m.group(3)))
+
+    return "每" + "每".join(den_parts) + value_phrase
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -289,12 +349,26 @@ def _build_patterns():
         lambda m: _int_to_zh(int(m.group(1))) + "比" + _int_to_zh(int(m.group(2))),
     ))
 
-    # 6. Speed: Nkm/h → 每小时N千米
+    # 6. Slash rates / compound units: Nkm/hour, N mg/dL, N MB/s, etc.
     p.append((
-        re.compile(r"(\d+(?:\.\d+)?)km/h"),
-        lambda m: "每小时" + (
-            _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
-        ) + "千米",
+        re.compile(
+            rf"(\d+(?:\.\d+)?)\s*({_RATE_UNIT_RE_ZH})\s*/\s*"
+            rf"((?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_ZH})(?:\^?[23]|[²³])?"
+            rf"(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_ZH})(?:\^?[23]|[²³])?)*)"
+        ),
+        lambda m: _slash_rate_zh(m.group(1), m.group(2), m.group(3)),
+    ))
+
+    _implied_rate_zh = {
+        "mph": ("小时", "英里"), "kph": ("小时", "千米"), "rpm": ("分钟", "转"),
+        "bpm": ("分钟", "次"), "fps": ("秒", "帧"), "dpi": ("英寸", "点"),
+        "ppm": ("百万", "份"), "kbps": ("秒", "千比特"), "Kbps": ("秒", "千比特"),
+        "Mbps": ("秒", "兆比特"), "Gbps": ("秒", "吉比特"), "Tbps": ("秒", "太比特"),
+    }
+    implied_rate_re_zh = "|".join(re.escape(u) for u in sorted(_implied_rate_zh, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s?({implied_rate_re_zh})\b"),
+        lambda m, irm=_implied_rate_zh: "每" + irm[m.group(2)][0] + _rate_number_to_zh(m.group(1)) + irm[m.group(2)][1],
     ))
 
     # 7. 100% → 百分之百
@@ -306,6 +380,16 @@ def _build_patterns():
         lambda m: "百分之" + (
             _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
         ),
+    ))
+
+    # 8b. Idiomatic slash expression that should not be treated as a fraction.
+    p.append((re.compile(r"(?<!\d)24/7(?!\d)"), lambda m: "二十四小时七天"))
+
+    # 8c. Currency per unit before plain currency amounts.
+    _currency_unit_zh = {"$": "美元", "€": "欧元", "£": "英镑", "₩": "韩元", "¥": "元", "￥": "元"}
+    p.append((
+        re.compile(rf"([$€£₩¥￥])(\d+(?:\.\d+)?)\s*/\s*((?:{_RATE_DEN_RE_ZH}))"),
+        lambda m, cm=_currency_unit_zh: "每" + _rate_den_part_zh(m.group(3)) + _rate_number_to_zh(m.group(2)) + cm[m.group(1)],
     ))
 
     # 9. CNY with decimal: ¥N.D → 元/角/分  (truncates to 2 decimal places)
@@ -557,15 +641,42 @@ _ENTITY_RE = re.compile(
     r"|(?<![a-zA-Z\d])(?:[A-Z]{2,}-?\d+(?:\.\d+)*[a-zA-Z]?|[A-Z]-?\d{2,}(?:\.\d+)*[a-zA-Z]?)(?![A-Z\d])"  # brand codes: USB3.0, A380, GPT-4, GPT-4o
 )
 
-_PINYIN_TONE_RE = re.compile(
-    r"(?<![a-zA-Z])"
-    r"(?:(?:[bpmfdtnlgkhjqxzcsryw]|[zcs]h)?"
-    r"(?:[aeiouüv]|[ae]i|u[aio]|ao|ou|i[aue]|[uüv]e|[uvü]ang?|uai|[aeiuv]n|[aeio]ng|ia[no]|i[ao]ng)"
-    r"|ng|er)"
-    r"[1-5]"
-    r"(?![a-zA-Z0-9])",
-    re.IGNORECASE,
+_PINYIN_BASES = frozenset(
+    """
+    ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu
+    ca cai can cang cao ce cen ceng cha chai chan chang chao che chen cheng chi chong chou
+    chu chua chuai chuan chuang chui chun chuo ci cong cou cu cuan cui cun cuo
+    da dai dan dang dao de dei deng di dian diao die ding diu dong dou du duan dui dun duo
+    ei en eng er fa fan fang fei fen feng fo fou fu
+    ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo
+    ha hai han hang hao he hei hen heng hong hou hu hua huai huan huang hui hun huo
+    ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun
+    ka kai kan kang kao ke ken keng kong kou ku kua kuai kuan kuang kui kun kuo
+    la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu long lou
+    lu luan lun luo lue lüe lv lü
+    ma mai man mang mao me mei men meng mi mian miao mie min ming miu mo mou mu
+    na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou
+    nu nuan nuo nue nüe nv nü
+    ou pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu
+    qi qia qian qiang qiao qie qin qing qiong qiu qu quan que qun
+    ran rang rao re ren reng ri rong rou ru rua ruan rui run ruo
+    sa sai san sang sao se sen seng sha shai shan shang shao she shei shen sheng shi shou
+    shu shua shuai shuan shuang shui shun shuo si song sou su suan sui sun suo
+    ta tai tan tang tao te teng ti tian tiao tie ting tong tou tu tuan tui tun tuo
+    wa wai wan wang wei wen weng wo wu
+    xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun
+    ya yan yang yao ye yi yin ying yo yong you yu yuan yue yun
+    za zai zan zang zao ze zei zen zeng zha zhai zhan zhang zhao zhe zhei zhen zheng zhi
+    zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi zong zou zu zuan zui zun zuo
+    """.split()
 )
+
+_PINYIN_TONE_RE = re.compile(r"(?<![a-zA-Z])([a-zA-ZüÜvV]+)([1-5])(?![a-zA-Z0-9])")
+
+
+def _is_pinyin_tone_token(token: str) -> bool:
+    base = token[:-1].lower().replace("ü", "v")
+    return base in _PINYIN_BASES
 
 # Use CJK Unified Ideographs offset as slot index (no digits → won't be re-converted)
 _SLOT_BASE = 0x4E00
@@ -621,10 +732,12 @@ class ZhNormalizer(BaseNormalizer):
             return _make_slot(len(slots) - 1)
 
         def _protect_pinyin(m: re.Match) -> str:
+            if not _is_pinyin_tone_token(m.group(0)):
+                return m.group(0)
             pinyin_slots.append(m.group(0))
             return _make_pinyin_slot(len(pinyin_slots) - 1)
 
-        # Pinyin tone tokens are valid BPE tokens and must survive both the main
+        # Valid pinyin tone tokens are BPE tokens and must survive both the main
         # normalization pipeline and the final digit cleanup.
         text = _PINYIN_TONE_RE.sub(_protect_pinyin, text)
 

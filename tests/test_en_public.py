@@ -267,6 +267,12 @@ class TestMoneyExtended:
         # STYLE: NeMo → "minus fifty dollars"
         assert en.normalize("-$50") == "negative fifty dollars"
 
+    def test_usd_per_weight(self, en):
+        assert en.normalize("$5/kg") == "five dollars per kilogram"
+
+    def test_usd_per_energy(self, en):
+        assert en.normalize("$0.12/kWh") == "twelve cents per kilowatt-hour"
+
     def test_gbp_whole(self, en):
         assert en.normalize("£50") == "fifty pounds"
 
@@ -292,6 +298,33 @@ class TestMeasureExtended:
 
     def test_speed(self, en):
         assert en.normalize("120km/h") == "one hundred twenty kilometers per hour"
+
+    def test_speed_spelled_denominator(self, en):
+        assert en.normalize("100km/hour") == "one hundred kilometers per hour"
+
+    def test_speed_with_spaces(self, en):
+        assert en.normalize("100 km / h") == "one hundred kilometers per hour"
+
+    def test_singular_speed(self, en):
+        assert en.normalize("1 km/h") == "one kilometer per hour"
+
+    def test_metric_acceleration(self, en):
+        assert en.normalize("9.8 m/s²") == "nine point eight meters per second squared"
+
+    def test_medical_concentration(self, en):
+        assert en.normalize("90 mg/dL") == "ninety milligrams per deciliter"
+
+    def test_data_rate(self, en):
+        assert en.normalize("500 MB/s") == "five hundred megabytes per second"
+
+    def test_fuel_consumption(self, en):
+        assert en.normalize("5 L/100km") == "five liters per one hundred kilometers"
+
+    def test_beats_per_minute(self, en):
+        assert en.normalize("72 beats/min") == "seventy-two beats per minute"
+
+    def test_megabits_per_second(self, en):
+        assert en.normalize("100 Mbps") == "one hundred megabits per second"
 
     # Imperial / US units (regression lock for 2026-05-27 additions)
     def test_feet(self, en):
@@ -361,6 +394,9 @@ class TestFractionsExtended:
 
     def test_one_tenth(self, en):
         assert en.normalize("1/10") == "one tenth"
+
+    def test_twenty_four_seven_not_fraction(self, en):
+        assert en.normalize("open 24/7") == "open twenty-four seven"
 
 
 # ---------------------------------------------------------------------------

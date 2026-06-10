@@ -182,6 +182,110 @@ def _time_es(h: int, m: int) -> str:
     return f"{article} {hour_word} y {min_word}"
 
 
+def _is_one_quantity_es(s: str) -> bool:
+    try:
+        return float(s) == 1
+    except ValueError:
+        return False
+
+
+def _rate_number_to_es(s: str) -> str:
+    return _decimal_to_es(s) if "." in s else _int_to_es(int(s))
+
+
+def _apocopate_un_es(text: str) -> str:
+    return re.sub(r"\buno$", "un", text)
+
+
+_RATE_UNIT_ES = {
+    "kg": ("kilogramo", "kilogramos"), "g": ("gramo", "gramos"), "mg": ("miligramo", "miligramos"),
+    "km": ("kilómetro", "kilómetros"), "m": ("metro", "metros"),
+    "cm": ("centímetro", "centímetros"), "mm": ("milímetro", "milímetros"),
+    "L": ("litro", "litros"), "l": ("litro", "litros"),
+    "ml": ("mililitro", "mililitros"), "mL": ("mililitro", "mililitros"),
+    "dL": ("decilitro", "decilitros"), "dl": ("decilitro", "decilitros"),
+    "kWh": ("kilovatio hora", "kilovatios hora"), "Wh": ("vatio hora", "vatios hora"),
+    "kW": ("kilovatio", "kilovatios"), "W": ("vatio", "vatios"),
+    "TB": ("terabyte", "terabytes"), "GB": ("gigabyte", "gigabytes"),
+    "MB": ("megabyte", "megabytes"), "KB": ("kilobyte", "kilobytes"),
+    "Tb": ("terabit", "terabits"), "Gb": ("gigabit", "gigabits"),
+    "Mb": ("megabit", "megabits"), "Kb": ("kilobit", "kilobits"),
+    "tb": ("terabit", "terabits"), "gb": ("gigabit", "gigabits"),
+    "mb": ("megabit", "megabits"), "kb": ("kilobit", "kilobits"), "b": ("bit", "bits"),
+    "Hz": ("hercio", "hercios"), "kHz": ("kilohercio", "kilohercios"),
+    "MHz": ("megahercio", "megahercios"), "GHz": ("gigahercio", "gigahercios"),
+    "Pa": ("pascal", "pascales"), "kPa": ("kilopascal", "kilopascales"), "MPa": ("megapascal", "megapascales"),
+    "beat": ("latido", "latidos"), "beats": ("latido", "latidos"),
+    "breath": ("respiración", "respiraciones"), "breaths": ("respiración", "respiraciones"),
+    "frame": ("fotograma", "fotogramas"), "frames": ("fotograma", "fotogramas"),
+    "word": ("palabra", "palabras"), "words": ("palabra", "palabras"),
+    "request": ("solicitud", "solicitudes"), "requests": ("solicitud", "solicitudes"),
+    "r": ("revolución", "revoluciones"),
+}
+
+_RATE_DEN_ES = {
+    **_RATE_UNIT_ES,
+    "h": ("hora", "horas"), "hr": ("hora", "horas"), "hrs": ("hora", "horas"),
+    "hour": ("hora", "horas"), "hours": ("hora", "horas"),
+    "s": ("segundo", "segundos"), "sec": ("segundo", "segundos"),
+    "secs": ("segundo", "segundos"), "second": ("segundo", "segundos"), "seconds": ("segundo", "segundos"),
+    "min": ("minuto", "minutos"), "mins": ("minuto", "minutos"),
+    "minute": ("minuto", "minutos"), "minutes": ("minuto", "minutos"),
+    "d": ("día", "días"), "day": ("día", "días"), "days": ("día", "días"),
+    "wk": ("semana", "semanas"), "wks": ("semana", "semanas"),
+    "week": ("semana", "semanas"), "weeks": ("semana", "semanas"),
+    "mo": ("mes", "meses"), "month": ("mes", "meses"), "months": ("mes", "meses"),
+    "yr": ("año", "años"), "yrs": ("año", "años"), "year": ("año", "años"), "years": ("año", "años"),
+    "person": ("persona", "personas"), "people": ("persona", "personas"),
+    "unit": ("unidad", "unidades"), "units": ("unidad", "unidades"),
+    "piece": ("pieza", "piezas"), "pieces": ("pieza", "piezas"),
+    "serving": ("porción", "porciones"), "servings": ("porción", "porciones"),
+    "seat": ("asiento", "asientos"), "seats": ("asiento", "asientos"),
+}
+
+_RATE_UNIT_RE_ES = "|".join(re.escape(u) for u in sorted(_RATE_UNIT_ES, key=len, reverse=True))
+_RATE_DEN_RE_ES = "|".join(re.escape(u) for u in sorted(_RATE_DEN_ES, key=len, reverse=True))
+
+
+def _lookup_rate_es(token: str, forms: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    if token in forms:
+        return forms[token]
+    return forms[token.lower()]
+
+
+def _quantity_unit_es(value: str, unit: str) -> str:
+    singular, plural = _lookup_rate_es(unit, _RATE_UNIT_ES)
+    number = _apocopate_un_es(_rate_number_to_es(value)) if _is_one_quantity_es(value) else _rate_number_to_es(value)
+    return number + " " + (singular if _is_one_quantity_es(value) else plural)
+
+
+def _den_part_es(token: str, count: str | None = None, power: str | None = None) -> str:
+    singular, plural = _lookup_rate_es(token, _RATE_DEN_ES)
+    if power in ("2", "^2", "²"):
+        unit = singular + " cuadrado"
+    elif power in ("3", "^3", "³"):
+        unit = singular + " cúbico"
+    elif count is not None:
+        unit = singular if _is_one_quantity_es(count) else plural
+    else:
+        unit = singular
+    if count is None:
+        return unit
+    number = _apocopate_un_es(_rate_number_to_es(count)) if _is_one_quantity_es(count) else _rate_number_to_es(count)
+    return number + " " + unit
+
+
+def _slash_rate_es(value: str, unit: str, denominator: str) -> str:
+    den_parts = []
+    for part in re.split(r"\s*/\s*", denominator):
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)?\s*([A-Za-zμ]+)(\^?[23]|[²³])?", part)
+        if not m:
+            den_parts.append(part)
+            continue
+        den_parts.append(_den_part_es(m.group(2), m.group(1), m.group(3)))
+    return _quantity_unit_es(value, unit) + " por " + " por ".join(den_parts)
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -242,7 +346,18 @@ def _build_patterns():
         lambda m: _ordinal_es(int(m.group(1))),
     ))
 
-    # 5. Fractions
+    # 5. Slash dates and idioms must precede generic fractions.
+    p.append((
+        re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})"),
+        lambda m: (
+            _int_to_es(int(m.group(3))) + " de "
+            + _MONTHS_ES[int(m.group(2))] + " de "
+            + _int_to_es(int(m.group(1)))
+        ),
+    ))
+    p.append((re.compile(r"(?<!\d)24/7(?!\d)"), lambda m: "veinticuatro siete"))
+
+    # 5b. Fractions
     p.append((
         re.compile(r"\b(\d+)/(\d+)\b"),
         lambda m: _fraction_es(int(m.group(1)), int(m.group(2))),
@@ -273,13 +388,29 @@ def _build_patterns():
         lambda m: _time_es(int(m.group(1)), int(m.group(2))),
     ))
 
-    # 9. Speed: km/h
+    # 9. Slash rates / compound units: Nkm/hour, N mg/dL, N MB/s, etc.
     p.append((
-        re.compile(r"(\d+(?:\.\d+)?)km/h"),
-        lambda m: (
-            _decimal_to_es(m.group(1)) if "." in m.group(1)
-            else _int_to_es(int(m.group(1)))
-        ) + " kilómetros por hora",
+        re.compile(
+            rf"(\d+(?:\.\d+)?)\s*({_RATE_UNIT_RE_ES})\s*/\s*"
+            rf"((?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_ES})(?:\^?[23]|[²³])?"
+            rf"(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:{_RATE_DEN_RE_ES})(?:\^?[23]|[²³])?)*)"
+        ),
+        lambda m: _slash_rate_es(m.group(1), m.group(2), m.group(3)),
+    ))
+
+    _implied_rate_es = {
+        "mph": "millas por hora", "kph": "kilómetros por hora",
+        "mpg": "millas por galón", "rpm": "revoluciones por minuto",
+        "bpm": "latidos por minuto", "wpm": "palabras por minuto",
+        "fps": "fotogramas por segundo", "dpi": "puntos por pulgada",
+        "ppm": "partes por millón", "kbps": "kilobits por segundo",
+        "Kbps": "kilobits por segundo", "Mbps": "megabits por segundo",
+        "Gbps": "gigabits por segundo", "Tbps": "terabits por segundo",
+    }
+    implied_rate_re_es = "|".join(re.escape(u) for u in sorted(_implied_rate_es, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s?({implied_rate_re_es})\b"),
+        lambda m, irm=_implied_rate_es: _rate_number_to_es(m.group(1)) + " " + irm[m.group(2)],
     ))
 
     # 10. Percentage
@@ -289,6 +420,17 @@ def _build_patterns():
             _decimal_to_es(m.group(1)) if "." in m.group(1)
             else _int_to_es(int(m.group(1)))
         ) + " por ciento",
+    ))
+
+    # 10b. Currency per unit before plain currency amounts.
+    _currency_unit_es = {"$": ("dólar", "dólares"), "€": ("euro", "euros"), "£": ("libra", "libras")}
+    p.append((
+        re.compile(rf"([$€£])(\d+(?:\.\d+)?)\s*/\s*((?:{_RATE_DEN_RE_ES}))"),
+        lambda m, cm=_currency_unit_es: (
+            (_apocopate_un_es(_rate_number_to_es(m.group(2))) if _is_one_quantity_es(m.group(2)) else _rate_number_to_es(m.group(2)))
+            + " " + (cm[m.group(1)][0] if _is_one_quantity_es(m.group(2)) else cm[m.group(1)][1])
+            + " por " + _den_part_es(m.group(3))
+        ),
     ))
 
     # 11. Negative currency

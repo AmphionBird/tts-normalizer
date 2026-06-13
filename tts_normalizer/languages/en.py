@@ -196,6 +196,102 @@ def _short_decade_en(two_digit_str: str) -> str:
     return tens_word[:-1] + "ies"
 
 
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ROMAN_RE = r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+_ROMAN_CARDINAL_CONTEXT_RE = (
+    r"World War|Chapter|Ch\.|Part|Volume|Vol\.|Book|Section|Sec\.|Appendix|"
+    r"Figure|Fig\.|Table|Act|Scene|Article|Title|Super Bowl"
+)
+_ROMAN_ORDINAL_CONTEXT_RE = (
+    r"King|Queen|Pope|Emperor|Empress|Henry|Louis|Elizabeth|Charles|George|"
+    r"Edward|Richard|James|William"
+)
+_WEEKDAYS_EN = {
+    "Mon": "Monday", "Tue": "Tuesday", "Tues": "Tuesday", "Wed": "Wednesday",
+    "Thu": "Thursday", "Thur": "Thursday", "Thurs": "Thursday",
+    "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday",
+}
+_WHITELIST_EN = {
+    "Ms.": "Ms",
+    "Mrs.": "Missus",
+    "Mx.": "Mix",
+    "Prof.": "Professor",
+    "Rev.": "Reverend",
+    "Gen.": "General",
+    "Rep.": "Representative",
+    "Sen.": "Senator",
+    "Gov.": "Governor",
+    "Pres.": "President",
+    "Capt.": "Captain",
+    "Lt.": "Lieutenant",
+    "Col.": "Colonel",
+    "Sgt.": "Sergeant",
+    "Jr.": "Junior",
+    "Sr.": "Senior",
+    "Co.": "Company",
+    "Inc.": "Incorporated",
+    "Ltd.": "Limited",
+    "U.S.": "U S",
+    "U.K.": "U K",
+    "U.N.": "U N",
+}
+_STATE_ABBR_EN = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "IA": "Iowa",
+    "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "MA": "Massachusetts", "MD": "Maryland",
+    "ME": "Maine", "MI": "Michigan", "MN": "Minnesota", "MO": "Missouri",
+    "MS": "Mississippi", "MT": "Montana", "NC": "North Carolina",
+    "ND": "North Dakota", "NE": "Nebraska", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NV": "Nevada", "NY": "New York",
+    "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VA": "Virginia",
+    "VT": "Vermont", "WA": "Washington", "WI": "Wisconsin", "WV": "West Virginia",
+    "WY": "Wyoming", "DC": "D C",
+}
+
+
+def _roman_to_int(token: str) -> int | None:
+    if not token or not re.fullmatch(_ROMAN_RE, token):
+        return None
+    total = 0
+    prev = 0
+    for ch in reversed(token):
+        value = _ROMAN_VALUES[ch]
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return total if 1 <= total <= 3999 else None
+
+
+def _roman_cardinal(token: str) -> str:
+    value = _roman_to_int(token)
+    return _int_to_en(value) if value is not None else token
+
+
+def _roman_ordinal(token: str) -> str:
+    value = _roman_to_int(token)
+    return _to_ordinal(value) if value is not None else token
+
+
+def _range_number_en(s: str) -> str:
+    if re.fullmatch(r"'?\d{2}s", s):
+        return _short_decade_en(s.removeprefix("'")[:2])
+    if re.fullmatch(r"\d{4}s?", s):
+        suffix = "s" if s.endswith("s") else ""
+        return _decade_to_en(int(s[:-1])) if suffix else _year_to_en(s)
+    return _read_number(s)
+
+
+def _range_en(left: str, right: str, suffix: str = "") -> str:
+    phrase = _range_number_en(left) + " to " + _range_number_en(right)
+    return phrase + (" " + suffix if suffix else "")
+
+
 def _usd_flex(d_str: str, c_raw: str | None) -> str:
     """USD handler that accepts 1-, 2-, or 3+-digit cent strings."""
     d = int(d_str)
@@ -414,6 +510,20 @@ def _build_patterns():
     p.append((re.compile(r"\bMr\."), lambda m: "Mister"))
     p.append((re.compile(r"\bvs\."), lambda m: "versus"))
     p.append((re.compile(r"\betc\."), lambda m: "et cetera"))
+    whitelist_re = "|".join(re.escape(k) for k in sorted(_WHITELIST_EN, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(?<!\w)({whitelist_re})(?!\w)"),
+        lambda m: _WHITELIST_EN[m.group(1)],
+    ))
+    p.append((
+        re.compile(r"\bSt\.\s+(?=[A-Z][a-z])"),
+        lambda m: "Saint ",
+    ))
+    state_re = "|".join(re.escape(k) for k in sorted(_STATE_ABBR_EN, key=len, reverse=True))
+    p.append((
+        re.compile(rf"\b([A-Za-z][A-Za-z .'-]*),\s*({state_re})(?=\b|[,.])"),
+        lambda m: m.group(1) + ", " + _STATE_ABBR_EN[m.group(2)],
+    ))
 
     # ── Phone: international +1 ──────────────────────────────────────────────
     # +1 NXX-NXX-XXXX (with various separators)
@@ -512,9 +622,36 @@ def _build_patterns():
 
     # Date: YYYY-MM-DD ISO
     p.append((
-        re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
+        re.compile(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})"),
         lambda m: (f"{_MONTHS_EN[int(m.group(2))]} {_to_ordinal(int(m.group(3)))},"
                    f" {_year_to_en(m.group(1))}"),
+    ))
+    # Date: MM/DD/YYYY. Ambiguous slash dates use US order by default.
+    p.append((
+        re.compile(r"\b(0?[1-9]|1[0-2])/([0-2]?\d|3[01])/(\d{4})\b"),
+        lambda m: (
+            f"{_MONTHS_EN[int(m.group(1))]} {_to_ordinal(int(m.group(2)))}, "
+            f"{_year_to_en(m.group(3))}"
+        ),
+    ))
+    # Date: DD/MM/YYYY when the day disambiguates the format.
+    p.append((
+        re.compile(r"\b(1[3-9]|2\d|3[01])/([0]?[1-9]|1[0-2])/(\d{4})\b"),
+        lambda m: (
+            f"the {_to_ordinal(int(m.group(1)))} of {_MONTHS_EN[int(m.group(2))]} "
+            f"{_year_to_en(m.group(3))}"
+        ),
+    ))
+    # Financial reporting periods: 1H23, 3Q22.
+    p.append((
+        re.compile(r"\b([12])H(\d{2})\b"),
+        lambda m: ("first" if m.group(1) == "1" else "second")
+                  + " half of " + _int_to_en(int(m.group(2))),
+    ))
+    p.append((
+        re.compile(r"\b([1-4])Q(\d{2})\b"),
+        lambda m: _to_ordinal(int(m.group(1)))
+                  + " quarter of " + _int_to_en(int(m.group(2))),
     ))
 
     # ── Time ──────────────────────────────────────────────────────────────────
@@ -593,6 +730,40 @@ def _build_patterns():
     p.append((
         re.compile(r"\b(\d{1,2}):(\d{2})\b"),
         lambda m: _time_hm(int(m.group(1)), int(m.group(2))),
+    ))
+
+    # ── Ranges ───────────────────────────────────────────────────────────────
+    weekday_re = "|".join(re.escape(k) for k in sorted(_WEEKDAYS_EN, key=len, reverse=True))
+    p.append((
+        re.compile(rf"\b({weekday_re})\.?\s*-\s*({weekday_re})\.?\b"),
+        lambda m: _WEEKDAYS_EN[m.group(1)] + " to " + _WEEKDAYS_EN[m.group(2)],
+    ))
+    p.append((
+        re.compile(r"\b(\d+(?:\.\d+)?)%\s*(?:-|to)\s*(\d+(?:\.\d+)?)%"),
+        lambda m: _range_en(m.group(1), m.group(2), "percent"),
+    ))
+    p.append((
+        re.compile(r"\b('?\d{2,4}s?)\s*-\s*('?\d{2,4}s?)\b"),
+        lambda m: _range_en(m.group(1), m.group(2)),
+    ))
+    p.append((
+        re.compile(r"\b(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\b"),
+        lambda m: _range_en(m.group(1), m.group(2)),
+    ))
+    p.append((
+        re.compile(r"~\s*(\d+(?:\.\d+)?)"),
+        lambda m: "approximately " + _read_number(m.group(1)),
+    ))
+
+    # ── Roman numerals ───────────────────────────────────────────────────────
+    roman_token = r"(?=[MDCLXVI])" + _ROMAN_RE
+    p.append((
+        re.compile(rf"\b({_ROMAN_CARDINAL_CONTEXT_RE})\s+({roman_token})\b"),
+        lambda m: m.group(1) + " " + _roman_cardinal(m.group(2)),
+    ))
+    p.append((
+        re.compile(rf"\b(({_ROMAN_ORDINAL_CONTEXT_RE})(?:\s+[A-Z][a-z]+){{0,3}})\s+({roman_token})\b"),
+        lambda m: m.group(1) + " " + _roman_ordinal(m.group(3)),
     ))
 
     # ── Minus / hyphen ───────────────────────────────────────────────────────

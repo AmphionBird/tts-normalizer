@@ -175,6 +175,41 @@ def _slash_rate_ja(value: str, unit: str, denominator: str) -> str:
     return "あたり".join(den_parts) + "あたり" + value_phrase
 
 
+_ASCII_ROMAN_VALUES_JA = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ASCII_ROMAN_RE_JA = r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+_WEEKDAY_JA = {
+    "月": "月曜日", "火": "火曜日", "水": "水曜日", "木": "木曜日",
+    "金": "金曜日", "土": "土曜日", "日": "日曜日",
+}
+_WHITELIST_JA = {
+    "Dr.": "ドクター",
+    "Prof.": "教授",
+    "Mr.": "ミスター",
+    "Mrs.": "ミセス",
+    "Ms.": "ミズ",
+    "No.": "第",
+}
+
+
+def _roman_to_ja(token: str) -> str:
+    if not token or not re.fullmatch(_ASCII_ROMAN_RE_JA, token):
+        return token
+    total = 0
+    prev = 0
+    for ch in reversed(token):
+        value = _ASCII_ROMAN_VALUES_JA[ch]
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return _int_to_ja(total) if 1 <= total <= 3999 else token
+
+
+def _range_number_ja(s: str) -> str:
+    return _decimal_to_ja(s) if "." in s else _int_to_ja(int(s))
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -202,6 +237,24 @@ def _build_patterns():
         ),
     ))
 
+    # 1a1. Conservative ASCII Roman numerals in Japanese/CJK contexts.
+    roman_token_ja = r"(?=[MDCLXVI])" + _ASCII_ROMAN_RE_JA
+    p.append((
+        re.compile(rf"第({roman_token_ja})(?=[章节章巻卷部幕篇])"),
+        lambda m: "第" + _roman_to_ja(m.group(1)),
+    ))
+    p.append((
+        re.compile(rf"\b({roman_token_ja})(?=型|類|級|期|区|組)"),
+        lambda m: _roman_to_ja(m.group(1)),
+    ))
+
+    # 1a2. Strict cased whitelist for mixed English abbreviations.
+    whitelist_ja_re = "|".join(re.escape(k) for k in sorted(_WHITELIST_JA, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(?<![A-Za-z])({whitelist_ja_re})(?![A-Za-z])"),
+        lambda m: _WHITELIST_JA[m.group(1)],
+    ))
+
     # 1b. Scientific notation (before integer/decimal)
     p.append((
         re.compile(r"(\d+(?:\.\d+)?)[×x\*]10\^-(\d+)"),
@@ -220,6 +273,16 @@ def _build_patterns():
         lambda m: _sci_to_ja(m.group(1), m.group(2)),
     ))
 
+    # 1b1. Dot date must precede version numbers.
+    p.append((
+        re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})"),
+        lambda m: (
+            _year_to_ja(m.group(1)) + "年"
+            + _int_to_ja(int(m.group(2))) + "月"
+            + _int_to_ja(int(m.group(3))) + "日"
+        ),
+    ))
+
     # 1c. Version numbers: N.N.N… (3+ components) → 一点零点零
     p.append((
         re.compile(r"\d+(?:\.\d+){2,}"),
@@ -232,14 +295,38 @@ def _build_patterns():
         lambda m: "第" + _int_to_ja(int(m.group(1))),
     ))
 
-    # 1e. Date with slashes must precede generic fractions.
+    # 1e. Date variants with slashes/dots must precede generic fractions.
     p.append((
-        re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})"),
+        re.compile(r"(\d{4})[/.](\d{1,2})[/.](\d{1,2})"),
         lambda m: (
             _year_to_ja(m.group(1)) + "年"
             + _int_to_ja(int(m.group(2))) + "月"
             + _int_to_ja(int(m.group(3))) + "日"
         ),
+    ))
+    p.append((
+        re.compile(r"\b(0?[1-9]|1[0-2])/([0-2]?\d|3[01])/(\d{4})\b"),
+        lambda m: (
+            _year_to_ja(m.group(3)) + "年"
+            + _int_to_ja(int(m.group(1))) + "月"
+            + _int_to_ja(int(m.group(2))) + "日"
+        ),
+    ))
+    p.append((
+        re.compile(r"\b(1[3-9]|2\d|3[01])/([0]?[1-9]|1[0-2])/(\d{4})\b"),
+        lambda m: (
+            _year_to_ja(m.group(3)) + "年"
+            + _int_to_ja(int(m.group(2))) + "月"
+            + _int_to_ja(int(m.group(1))) + "日"
+        ),
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])([12])H(\d{2})(?![A-Za-z0-9])"),
+        lambda m: "二〇" + _digits_to_ja(m.group(2)) + "年" + ("上半期" if m.group(1) == "1" else "下半期"),
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])([1-4])Q(\d{2})(?![A-Za-z0-9])"),
+        lambda m: "二〇" + _digits_to_ja(m.group(2)) + "年第" + _int_to_ja(int(m.group(1))) + "四半期",
     ))
 
     p.append((re.compile(r"(?<!\d)24/7(?!\d)"), lambda m: "二十四時間年中無休"))
@@ -258,6 +345,12 @@ def _build_patterns():
             + _int_to_ja(int(m.group(2))) + "月"
             + _int_to_ja(int(m.group(3))) + "日"
         ),
+    ))
+
+    # 2b. Year ranges before standalone YYYY年.
+    p.append((
+        re.compile(r"(\d{4})\s*(?:-|から|~|〜)\s*(\d{4})年"),
+        lambda m: _year_to_ja(m.group(1)) + "から" + _year_to_ja(m.group(2)) + "年",
     ))
 
     # 3. Year: YYYY年 → digit-by-digit
@@ -315,6 +408,12 @@ def _build_patterns():
         lambda m, irm=_implied_rate_ja: "一" + irm[m.group(2)][0] + "あたり" + _rate_number_to_ja(m.group(1)) + irm[m.group(2)][1],
     ))
 
+    # Percentage range must precede standalone percentage.
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)%\s*(?:-|から|~|〜)\s*(\d+(?:\.\d+)?)%"),
+        lambda m: _range_number_ja(m.group(1)) + "から" + _range_number_ja(m.group(2)) + "パーセント",
+    ))
+
     # 7. Percentage
     p.append((
         re.compile(r"(\d+(?:\.\d+)?)%"),
@@ -323,7 +422,21 @@ def _build_patterns():
         ) + "パーセント",
     ))
 
-    # 7a. Currency per unit before plain currency amounts.
+    # 7a. Ranges that should precede hyphenated IDs and plain numbers.
+    p.append((
+        re.compile(r"([月火水木金土日])曜?日?\s*(?:-|から|~|〜)\s*([月火水木金土日])曜?日?"),
+        lambda m: _WEEKDAY_JA[m.group(1)] + "から" + _WEEKDAY_JA[m.group(2)],
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])(\d+(?:\.\d+)?)\s*(?:-|から|~|〜)\s*(\d+(?:\.\d+)?)(?=[一-龯ぁ-んァ-ン])"),
+        lambda m: _range_number_ja(m.group(1)) + "から" + _range_number_ja(m.group(2)),
+    ))
+    p.append((
+        re.compile(r"~\s*(\d+(?:\.\d+)?)"),
+        lambda m: "約" + _range_number_ja(m.group(1)),
+    ))
+
+    # 7b. Currency per unit before plain currency amounts.
     _currency_unit_ja = {"$": "ドル", "€": "ユーロ", "£": "ポンド", "¥": "円", "￥": "円"}
     p.append((
         re.compile(rf"([$€£¥￥])(\d+(?:\.\d+)?)\s*/\s*((?:{_RATE_DEN_RE_JA}))"),

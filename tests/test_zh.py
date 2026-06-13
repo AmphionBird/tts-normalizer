@@ -105,3 +105,28 @@ def test_non_pinyin_letter_digit_tokens_are_not_preserved(zh):
 
 def test_pinyin_tone_digit_must_be_one_to_five(zh):
     assert zh.normalize("zang6不是拼音声调token") == "zang六不是拼音声调token"
+
+
+def test_ascii_roman_contexts(zh):
+    assert zh.normalize("第IV章") == "第四章"
+    assert zh.normalize("II型糖尿病") == "二型糖尿病"
+
+
+def test_strict_whitelist_zh(zh):
+    assert zh.normalize("Dr.王今天来了") == "博士王今天来了"
+    assert zh.normalize("dr.王今天来了") == "dr.王今天来了"
+
+
+def test_date_variants_zh(zh):
+    assert zh.normalize("2026.04.13") == "二零二六年四月十三日"
+    assert zh.normalize("04/13/2026") == "二零二六年四月十三日"
+    assert zh.normalize("13/04/2026") == "二零二六年四月十三日"
+    assert zh.normalize("1H23业绩") == "二零二三年上半年业绩"
+    assert zh.normalize("3Q22报告") == "二零二二年第三季度报告"
+
+
+def test_range_variants_zh(zh):
+    assert zh.normalize("周一-周五开放") == "周一到周五开放"
+    assert zh.normalize("需要2-3个样本") == "需要二到三个样本"
+    assert zh.normalize("增长10%-20%") == "增长百分之十到百分之二十"
+    assert zh.normalize("1990-2000年") == "一九九零到二零零零年"

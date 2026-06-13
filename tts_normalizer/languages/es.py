@@ -286,6 +286,66 @@ def _slash_rate_es(value: str, unit: str, denominator: str) -> str:
     return _quantity_unit_es(value, unit) + " por " + " por ".join(den_parts)
 
 
+_ASCII_ROMAN_VALUES_ES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ASCII_ROMAN_RE_ES = r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+_ROMAN_CARDINAL_CONTEXT_ES = r"[Ss]iglo|[Cc]apítulo|[Cc]ap\.|[Vv]olumen|[Ll]ibro|[Pp]arte|[Aa]cto"
+_ROMAN_ORDINAL_CONTEXT_ES = (
+    r"Felipe|Carlos|Alfonso|Fernando|Isabel|Juan|Luis|Enrique|Papa|Pablo|Benedicto|Pío"
+)
+_WEEKDAY_ES = {
+    "lun": "lunes", "lunes": "lunes", "mar": "martes", "martes": "martes",
+    "mié": "miércoles", "mie": "miércoles", "miércoles": "miércoles", "miercoles": "miércoles",
+    "jue": "jueves", "jueves": "jueves", "vie": "viernes", "viernes": "viernes",
+    "sáb": "sábado", "sab": "sábado", "sábado": "sábado", "sabado": "sábado",
+    "dom": "domingo", "domingo": "domingo",
+}
+_WHITELIST_ES = {
+    "Dra.": "doctora",
+    "Srta.": "señorita",
+    "Sres.": "señores",
+    "Profa.": "profesora",
+    "Prof.": "profesor",
+    "Lic.": "licenciado",
+    "Ing.": "ingeniero",
+    "Ud.": "usted",
+    "Uds.": "ustedes",
+    "EE. UU.": "Estados Unidos",
+    "pág.": "página",
+    "págs.": "páginas",
+    "Av.": "avenida",
+    "Cía.": "compañía",
+}
+
+
+def _roman_to_int_es(token: str) -> int | None:
+    if not token or not re.fullmatch(_ASCII_ROMAN_RE_ES, token):
+        return None
+    total = 0
+    prev = 0
+    for ch in reversed(token):
+        value = _ASCII_ROMAN_VALUES_ES[ch]
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return total if 1 <= total <= 3999 else None
+
+
+def _roman_cardinal_es(token: str) -> str:
+    value = _roman_to_int_es(token)
+    return _int_to_es(value) if value is not None else token
+
+
+def _roman_ordinal_es(token: str) -> str:
+    value = _roman_to_int_es(token)
+    return _ordinal_es(value) if value is not None else token
+
+
+def _range_number_es(s: str) -> str:
+    return _decimal_to_es(s) if "." in s else _int_to_es(int(s))
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -303,6 +363,11 @@ def _build_patterns():
     p.append((re.compile(r"\bNo\.\s*(\d+)"), lambda m: "número " + _int_to_es(int(m.group(1)))))
     p.append((re.compile(r"\bvs\."), lambda m: "versus"))
     p.append((re.compile(r"\betc\."), lambda m: "et cétera"))
+    whitelist_es_re = "|".join(re.escape(k) for k in sorted(_WHITELIST_ES, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(?<!\w)({whitelist_es_re})(?!\w)"),
+        lambda m: _WHITELIST_ES[m.group(1)],
+    ))
 
     # 2. Scientific notation (negative exponent first)
     p.append((
@@ -320,6 +385,16 @@ def _build_patterns():
     p.append((
         re.compile(r"(\d+(?:\.\d+)?)[eE]\+?(\d+)"),
         lambda m: _sci_to_es(m.group(1), m.group(2)),
+    ))
+
+    # 2b. Date: YYYY.MM.DD must precede version numbers.
+    p.append((
+        re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})"),
+        lambda m: (
+            _int_to_es(int(m.group(3))) + " de "
+            + _MONTHS_ES[int(m.group(2))] + " de "
+            + _int_to_es(int(m.group(1)))
+        ),
     ))
 
     # 3. Version numbers: N.N.N… (3+ components)
@@ -354,6 +429,24 @@ def _build_patterns():
             + _MONTHS_ES[int(m.group(2))] + " de "
             + _int_to_es(int(m.group(1)))
         ),
+    ))
+    p.append((
+        re.compile(r"\b([0-2]?\d|3[01])/([0]?[1-9]|1[0-2])/(\d{4})\b"),
+        lambda m: (
+            _int_to_es(int(m.group(1))) + " de "
+            + _MONTHS_ES[int(m.group(2))] + " de "
+            + _int_to_es(int(m.group(3)))
+        ),
+    ))
+    p.append((
+        re.compile(r"\b([12])H(\d{2})\b"),
+        lambda m: ("primer" if m.group(1) == "1" else "segundo")
+                  + " semestre de " + _int_to_es(int(m.group(2))),
+    ))
+    p.append((
+        re.compile(r"\b([1-4])Q(\d{2})\b"),
+        lambda m: ["", "primer", "segundo", "tercer", "cuarto"][int(m.group(1))]
+                  + " trimestre de " + _int_to_es(int(m.group(2))),
     ))
     p.append((re.compile(r"(?<!\d)24/7(?!\d)"), lambda m: "veinticuatro siete"))
 
@@ -411,6 +504,17 @@ def _build_patterns():
     p.append((
         re.compile(rf"(\d+(?:\.\d+)?)\s?({implied_rate_re_es})\b"),
         lambda m, irm=_implied_rate_es: _rate_number_to_es(m.group(1)) + " " + irm[m.group(2)],
+    ))
+
+    # 9b. Percentage and weekday ranges.
+    weekday_es_re = "|".join(re.escape(k) for k in sorted(_WEEKDAY_ES, key=len, reverse=True))
+    p.append((
+        re.compile(rf"\b({weekday_es_re})\.?\s*(?:-|a|hasta)\s*({weekday_es_re})\.?\b"),
+        lambda m: _WEEKDAY_ES[m.group(1)] + " a " + _WEEKDAY_ES[m.group(2)],
+    ))
+    p.append((
+        re.compile(r"\b(\d+(?:\.\d+)?)%\s*(?:-|a|hasta)\s*(\d+(?:\.\d+)?)%"),
+        lambda m: _range_number_es(m.group(1)) + " a " + _range_number_es(m.group(2)) + " por ciento",
     ))
 
     # 10. Percentage
@@ -480,6 +584,13 @@ def _build_patterns():
     unit_re_es = "|".join(re.escape(u) for u in sorted(_unit_map_es, key=len, reverse=True))
 
     p.append((
+        re.compile(rf"(\d+(?:\.\d+)?)\s*(?:-|a|hasta)\s*(\d+(?:\.\d+)?)\s?({unit_re_es})\b"),
+        lambda m, um=_unit_map_es: (
+            _range_number_es(m.group(1)) + " a " + _range_number_es(m.group(2)) + " " + um[m.group(3)]
+        ),
+    ))
+
+    p.append((
         re.compile(rf"-(\d+(?:\.\d+)?)({unit_re_es})\b"),
         lambda m, um=_unit_map_es: "menos " + (
             _decimal_to_es(m.group(1)) if "." in m.group(1)
@@ -492,6 +603,30 @@ def _build_patterns():
             _decimal_to_es(m.group(1)) if "." in m.group(1)
             else _int_to_es(int(m.group(1)))
         ) + " " + um[m.group(2)],
+    ))
+
+    p.append((
+        re.compile(r"\b(\d{4})\s*(?:-|a|hasta)\s*(\d{4})\b"),
+        lambda m: _int_to_es(int(m.group(1))) + " a " + _int_to_es(int(m.group(2))),
+    ))
+    p.append((
+        re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:-|a|hasta)\s*(\d+(?:\.\d+)?)\b"),
+        lambda m: _range_number_es(m.group(1)) + " a " + _range_number_es(m.group(2)),
+    ))
+    p.append((
+        re.compile(r"~\s*(\d+(?:\.\d+)?)"),
+        lambda m: "aproximadamente " + _range_number_es(m.group(1)),
+    ))
+
+    # 13b. Roman numerals in common Spanish contexts.
+    roman_token_es = r"(?=[MDCLXVI])" + _ASCII_ROMAN_RE_ES
+    p.append((
+        re.compile(rf"\b({_ROMAN_CARDINAL_CONTEXT_ES})\s+({roman_token_es})\b"),
+        lambda m: m.group(1) + " " + _roman_cardinal_es(m.group(2)),
+    ))
+    p.append((
+        re.compile(rf"\b(({_ROMAN_ORDINAL_CONTEXT_ES})(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){{0,3}})\s+({roman_token_es})\b"),
+        lambda m: m.group(1) + " " + _roman_ordinal_es(m.group(3)),
     ))
 
     # 14. Minus / hyphen: only spaced non-whitespace expressions read the hyphen.

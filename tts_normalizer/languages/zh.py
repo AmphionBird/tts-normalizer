@@ -209,6 +209,43 @@ def _slash_rate_zh(value: str, unit: str, denominator: str) -> str:
     return "每" + "每".join(den_parts) + value_phrase
 
 
+_ASCII_ROMAN_VALUES_ZH = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+_ASCII_ROMAN_RE_ZH = r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+_WEEKDAY_ZH = {
+    "一": "周一", "二": "周二", "三": "周三", "四": "周四",
+    "五": "周五", "六": "周六", "日": "周日", "天": "周日",
+}
+_WHITELIST_ZH = {
+    "Dr.": "博士",
+    "Prof.": "教授",
+    "Mr.": "先生",
+    "Mrs.": "女士",
+    "Ms.": "女士",
+    "No.": "第",
+}
+
+
+def _roman_to_zh(token: str) -> str:
+    if not token or not re.fullmatch(_ASCII_ROMAN_RE_ZH, token):
+        return token
+    total = 0
+    prev = 0
+    for ch in reversed(token):
+        value = _ASCII_ROMAN_VALUES_ZH[ch]
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return _int_to_zh(total) if 1 <= total <= 3999 else token
+
+
+def _range_number_zh(s: str, year_like: bool = False) -> str:
+    if year_like and re.fullmatch(r"\d{4}", s):
+        return _year_to_zh(s)
+    return _number_to_zh(s)
+
+
 # ---------------------------------------------------------------------------
 # Pattern registry
 # ---------------------------------------------------------------------------
@@ -234,6 +271,24 @@ def _build_patterns():
     p.append((
         re.compile("[" + "".join(_roman_zh.keys()) + "]"),
         lambda m, rm=_roman_zh: rm.get(m.group(0), m.group(0)),
+    ))
+
+    # 0a1b. Conservative ASCII Roman numerals in CJK contexts.
+    roman_token_zh = r"(?=[MDCLXVI])" + _ASCII_ROMAN_RE_ZH
+    p.append((
+        re.compile(rf"第({roman_token_zh})(?=[章节卷部幕篇])"),
+        lambda m: "第" + _roman_to_zh(m.group(1)),
+    ))
+    p.append((
+        re.compile(rf"\b({roman_token_zh})(?=型|类|级|期|区|组)"),
+        lambda m: _roman_to_zh(m.group(1)),
+    ))
+
+    # 0a1c. Strict cased whitelist for mixed English abbreviations.
+    whitelist_zh_re = "|".join(re.escape(k) for k in sorted(_WHITELIST_ZH, key=len, reverse=True))
+    p.append((
+        re.compile(rf"(?<![A-Za-z])({whitelist_zh_re})(?![A-Za-z])"),
+        lambda m: _WHITELIST_ZH[m.group(1)],
     ))
 
     # 0a2–5. Scientific notation (must precede symbol map and integer patterns)
@@ -266,6 +321,16 @@ def _build_patterns():
             lambda m, c=ctx: c + "".join(_DIGITS[int(d)] for d in m.group(1)),
         ))
 
+    # 0b1. Dot date must precede version numbers.
+    p.append((
+        re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})"),
+        lambda m: (
+            _year_to_zh(m.group(1)) + "年"
+            + _int_to_zh(int(m.group(2))) + "月"
+            + _int_to_zh(int(m.group(3))) + "日"
+        ),
+    ))
+
     # 0c. Version numbers: N.N.N… (3+ components) → 一点零点零
     p.append((
         re.compile(r"\d+(?:\.\d+){2,}"),
@@ -296,20 +361,51 @@ def _build_patterns():
         lambda m: "过去" + _int_to_zh(int(m.group(1))) + "年",
     ))
 
-    # 1. Date: YYYY-MM-DD or YYYY/MM/DD (leading zeros stripped — dates never read "零四月")
+    # 1. Date: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD (leading zeros stripped)
     p.append((
-        re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})"),
+        re.compile(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})"),
         lambda m: (
             _year_to_zh(m.group(1)) + "年"
             + _int_to_zh(int(m.group(2))) + "月"
             + _int_to_zh(int(m.group(3))) + "日"
         ),
     ))
+    # Date: MM/DD/YYYY by default; DD/MM/YYYY only when day disambiguates.
+    p.append((
+        re.compile(r"\b(0?[1-9]|1[0-2])/([0-2]?\d|3[01])/(\d{4})\b"),
+        lambda m: (
+            _year_to_zh(m.group(3)) + "年"
+            + _int_to_zh(int(m.group(1))) + "月"
+            + _int_to_zh(int(m.group(2))) + "日"
+        ),
+    ))
+    p.append((
+        re.compile(r"\b(1[3-9]|2\d|3[01])/([0]?[1-9]|1[0-2])/(\d{4})\b"),
+        lambda m: (
+            _year_to_zh(m.group(3)) + "年"
+            + _int_to_zh(int(m.group(2))) + "月"
+            + _int_to_zh(int(m.group(1))) + "日"
+        ),
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])([12])H(\d{2})(?![A-Za-z0-9])"),
+        lambda m: "二零" + _digits_to_zh(m.group(2)) + "年" + ("上半年" if m.group(1) == "1" else "下半年"),
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])([1-4])Q(\d{2})(?![A-Za-z0-9])"),
+        lambda m: "二零" + _digits_to_zh(m.group(2)) + "年" + "第" + _int_to_zh(int(m.group(1))) + "季度",
+    ))
 
     # 2. Date: M月D日
     p.append((
         re.compile(r"(\d{1,2})月(\d{1,2})日"),
         lambda m: f"{_int_to_zh(int(m.group(1)))}月{_int_to_zh(int(m.group(2)))}日",
+    ))
+
+    # 2b. Year ranges before standalone YYYY年.
+    p.append((
+        re.compile(r"(\d{4})\s*[-~〜到至]\s*(\d{4})年"),
+        lambda m: _year_to_zh(m.group(1)) + "到" + _year_to_zh(m.group(2)) + "年",
     ))
 
     # 3. Year: YYYY年 → digit-by-digit
@@ -371,6 +467,12 @@ def _build_patterns():
         lambda m, irm=_implied_rate_zh: "每" + irm[m.group(2)][0] + _rate_number_to_zh(m.group(1)) + irm[m.group(2)][1],
     ))
 
+    # Percentage range must precede standalone percentage.
+    p.append((
+        re.compile(r"(\d+(?:\.\d+)?)%\s*(?:-|到|至|~|〜)\s*(\d+(?:\.\d+)?)%"),
+        lambda m: "百分之" + _range_number_zh(m.group(1)) + "到百分之" + _range_number_zh(m.group(2)),
+    ))
+
     # 7. 100% → 百分之百
     p.append((re.compile(r"100%"), lambda m: "百分之百"))
 
@@ -380,6 +482,20 @@ def _build_patterns():
         lambda m: "百分之" + (
             _decimal_to_zh(m.group(1)) if "." in m.group(1) else _int_to_zh(int(m.group(1)))
         ),
+    ))
+
+    # 8a. Ranges that should precede fractions, hyphenated IDs, and plain numbers.
+    p.append((
+        re.compile(r"周([一二三四五六日天])\s*[-~〜到至]\s*周?([一二三四五六日天])"),
+        lambda m: _WEEKDAY_ZH[m.group(1)] + "到" + _WEEKDAY_ZH[m.group(2)],
+    ))
+    p.append((
+        re.compile(r"(?<![A-Za-z0-9])(\d+(?:\.\d+)?)\s*[~〜到至]\s*(\d+(?:\.\d+)?)(?![A-Za-z0-9])"),
+        lambda m: _range_number_zh(m.group(1)) + "到" + _range_number_zh(m.group(2)),
+    ))
+    p.append((
+        re.compile(r"~\s*(\d+(?:\.\d+)?)"),
+        lambda m: "约" + _range_number_zh(m.group(1)),
     ))
 
     # 8b. Idiomatic slash expression that should not be treated as a fraction.
